@@ -7,7 +7,7 @@
 
 namespace arm11 {
 
-// ARM-state B/BX bodies; the emitter supplies conditions. BL remains deferred.
+// ARM-state B/BL/BX bodies; the emitter supplies CPSR condition guards.
 class BranchTranslator {
 public:
     // current_pc is the instruction address, before the ARM pipeline's +8.

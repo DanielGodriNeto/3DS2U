@@ -47,7 +47,17 @@ int main(int argc, char** argv) {
           "cpu.r[15] = 0x8000008; return;");
     Check(translate(0x112FFF1Eu, 0x08000000u) ==
           "cpu.r[15] = cpu.r[14]; return;");
-    for (const auto opcode : {0xEB000000u, 0xFA000000u, 0xE12FFF3Eu, 0xE0810002u}) {
+    Check(translate(0xEB000001u, 0x08000000u) ==
+          "cpu.r[14] = 0x8000004;\ncpu.r[15] = 0x800000C;\nreturn;");
+    Check(translate(0xEBFFFFFEu, 0x08000000u) ==
+          "cpu.r[14] = 0x8000004;\ncpu.r[15] = 0x8000000;\nreturn;");
+    Check(translate(0xEB800000u, 0x08000000u) ==
+          "cpu.r[14] = 0x8000004;\ncpu.r[15] = 0x6000008;\nreturn;");
+    Check(translate(0xEB7FFFFFu, 0x08000000u) ==
+          "cpu.r[14] = 0x8000004;\ncpu.r[15] = 0xA000004;\nreturn;");
+    Check(translate(0xEB000000u, 0xFFFFFFFCu) ==
+          "cpu.r[14] = 0x0;\ncpu.r[15] = 0x4;\nreturn;");
+    for (const auto opcode : {0xFA000000u, 0xFB000000u, 0xE12FFF3Eu, 0xE0810002u}) {
         Check(translate(opcode, 0x08000000u) == "// Unhandled Branch");
     }
 
@@ -77,4 +87,30 @@ int main(int argc, char** argv) {
              "engine.RegisterBlock(0x08000008u, &arm11::block_08000008);"}) {
         Check(source.find(expected) != std::string::npos);
     }
+
+    // BL's callee can start inside an earlier block; its return address must also
+    // remain a registered block entry for the callee's BX LR.
+    const auto calls = builder.BuildBlocks({
+        {0xE1A00000u, 0x08000000u},
+        {0xE1A01001u, 0x08000004u},
+        {0xEBFFFFFDu, 0x08000008u}, // BL 0x08000004
+        {0x0B000000u, 0x0800000Cu}, // BLEQ 0x08000014
+        {0xE1A02002u, 0x08000010u},
+        {0xE12FFF1Eu, 0x08000014u},
+    });
+    Check(calls.contains(0x08000004u));
+    Check(calls.contains(0x0800000Cu));
+    Check(calls.contains(0x08000014u));
+    Check(calls.at(0x08000004u).instructions.back().opcode == 0xEBFFFFFDu);
+    Check(emitter.EmitTranslatedFile(std::string{argv[1]} + ".calls.cpp", calls));
+    std::ifstream call_file(std::string{argv[1]} + ".calls.cpp");
+    Check(call_file.is_open());
+    const std::string call_source{std::istreambuf_iterator<char>(call_file),
+                                  std::istreambuf_iterator<char>()};
+    Check(call_source.find("    if (cpu.cpsr.Z) {\n"
+                           "        cpu.r[14] = 0x8000010;\n"
+                           "        cpu.r[15] = 0x8000014;\n"
+                           "        return;\n"
+                           "    }\n"
+                           "    cpu.r[15] = 0x08000010u;") != std::string::npos);
 }

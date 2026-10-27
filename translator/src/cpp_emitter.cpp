@@ -67,7 +67,7 @@ bool CppEmitter::EmitTranslatedFile(
                   "#include \"wiiu_engine.hpp\"\n\n"
                   "namespace arm11 {\n\n"
                   "// Block bodies inherit the current translators' supported subset.\n"
-                  "// B/BX update the guest PC and return to the runtime dispatcher.\n\n";
+                  "// B/BL/BX update the guest PC and return to the runtime dispatcher.\n\n";
 
         ALUTranslator alu;
         MemoryTranslator memory;
