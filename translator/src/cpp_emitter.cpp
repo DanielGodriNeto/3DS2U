@@ -1,6 +1,7 @@
 #include "cpp_emitter.hpp"
 
 #include "alu_translator.hpp"
+#include "branch_translator.hpp"
 #include "mem_translator.hpp"
 
 #include <algorithm>
@@ -49,22 +50,36 @@ bool CppEmitter::EmitTranslatedFile(
                   "#include \"wiiu_engine.hpp\"\n\n"
                   "namespace arm11 {\n\n"
                   "// Block bodies inherit the current translators' supported subset.\n"
-                  "// Branch execution and dispatcher scheduling are implemented separately.\n\n";
+                  "// B/BX update the guest PC and return to the runtime dispatcher.\n\n";
 
         ALUTranslator alu;
         MemoryTranslator memory;
+        BranchTranslator branch;
         for (const auto address : addresses) {
             output << "void block_" << HexAddress(address)
                    << "(arm11::CPUContext& cpu, wiiu::WiiUMemory& memory) {\n"
                       "    (void)cpu;\n"
                       "    (void)memory;\n";
 
-            for (const auto& inst : cfg.at(address).instructions) {
-                auto translated = alu.TranslateInstruction(inst);
+            const auto& instructions = cfg.at(address).instructions;
+            bool terminates = false;
+            for (const auto& inst : instructions) {
+                auto translated = branch.TranslateInstruction(inst, inst.address);
+                if (translated != "// Unhandled Branch") {
+                    output << "    " << translated << '\n';
+                    terminates = true;
+                    break;
+                }
+                translated = alu.TranslateInstruction(inst);
                 if (translated == "// Unhandled Instruction") {
                     translated = memory.TranslateInstruction(inst);
                 }
                 output << "    " << translated << '\n';
+            }
+            // A block split at a branch target still needs sequential fallthrough.
+            if (!terminates && !instructions.empty()) {
+                const std::uint32_t next_pc = instructions.back().address + 4u;
+                output << "    cpu.r[15] = 0x" << HexAddress(next_pc) << "u;\n";
             }
             output << "}\n\n";
         }

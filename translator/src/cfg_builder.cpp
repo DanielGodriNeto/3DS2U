@@ -6,14 +6,16 @@
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace arm11 {
 namespace {
 
-// Naive ARM immediate-branch classifier: bit 24 distinguishes B from BL.
+// Keep B/BL and BX as block terminators, including conditional forms.
 constexpr bool IsBranch(std::uint32_t opcode) noexcept {
     const auto nibble = (opcode >> 24) & 0xFu;
-    return nibble == 0b1010u || nibble == 0b1011u;
+    return nibble == 0b1010u || nibble == 0b1011u ||
+           ((opcode >> 4) & 0x00FFFFFFu) == 0x0012FFF1u;
 }
 
 } // namespace
@@ -21,6 +23,16 @@ constexpr bool IsBranch(std::uint32_t opcode) noexcept {
 std::unordered_map<std::uint32_t, BasicBlock>
 CFGBuilder::BuildBlocks(const std::vector<Instruction>& instructions) const {
     std::unordered_map<std::uint32_t, BasicBlock> blocks;
+    std::unordered_set<std::uint32_t> branch_targets;
+    for (const auto& inst : instructions) {
+        if ((inst.opcode & 0xFF000000u) == 0xEA000000u) {
+            std::uint32_t offset = inst.opcode & 0x00FFFFFFu;
+            if ((offset & 0x00800000u) != 0) {
+                offset |= 0xFF000000u;
+            }
+            branch_targets.insert(inst.address + 8u + (offset << 2));
+        }
+    }
     BasicBlock* current = nullptr;
     std::uint64_t expected_address = 0;
 
@@ -30,7 +42,8 @@ CFGBuilder::BuildBlocks(const std::vector<Instruction>& instructions) const {
             throw std::invalid_argument("ARM instructions must be aligned and strictly ordered");
         }
 
-        if (current == nullptr || inst.address != expected_address) {
+        if (current == nullptr || inst.address != expected_address ||
+            branch_targets.contains(inst.address)) {
             auto [it, inserted] = blocks.try_emplace(inst.address);
             if (!inserted) {
                 throw std::invalid_argument("Duplicate ARM block address");
@@ -40,7 +53,7 @@ CFGBuilder::BuildBlocks(const std::vector<Instruction>& instructions) const {
             current->start = {inst.address, InstructionSet::ARM};
         }
 
-        // Keep the terminating branch in its source block, including final B/BL.
+        // Keep the terminating branch in its source block, including final BX.
         if (current->byte_size > std::numeric_limits<std::uint32_t>::max() - 4u) {
             throw std::overflow_error("ARM block byte size exceeds metadata capacity");
         }
