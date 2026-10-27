@@ -43,8 +43,11 @@ int main(int argc, char** argv) {
           "cpu.r[15] = cpu.r[14]; return;");
     Check(translate(0xE12FFF10u, 0x08000000u) ==
           "cpu.r[15] = cpu.r[0]; return;");
-    for (const auto opcode : {0xEB000000u, 0x1A000000u, 0xFA000000u,
-                              0x112FFF1Eu, 0xE12FFF3Eu, 0xE0810002u}) {
+    Check(translate(0x1A000000u, 0x08000000u) ==
+          "cpu.r[15] = 0x8000008; return;");
+    Check(translate(0x112FFF1Eu, 0x08000000u) ==
+          "cpu.r[15] = cpu.r[14]; return;");
+    for (const auto opcode : {0xEB000000u, 0xFA000000u, 0xE12FFF3Eu, 0xE0810002u}) {
         Check(translate(opcode, 0x08000000u) == "// Unhandled Branch");
     }
 

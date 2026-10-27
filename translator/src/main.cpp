@@ -14,10 +14,8 @@ int main() {
     uint32_t dummy_instructions[] = {
         0xE1A01002, // MOV R1, R2
         0xE0813002, // ADD R3, R1, R2
-        0xE5901010, // LDR R1, [R0, #0x10]
-        0xE5801020, // STR R1, [R0, #0x20]
-        0xEAFFFFFE  // B . (Branch - Ends block)
-    }; 
+        0xEAFFFFFE  // B . (Infinite branch to itself)
+    };
     ofs.write(reinterpret_cast<const char*>(dummy_instructions), sizeof(dummy_instructions));
     ofs.close();
 

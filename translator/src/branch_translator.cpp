@@ -8,8 +8,8 @@ namespace arm11 {
 std::string BranchTranslator::TranslateInstruction(
     const Instruction& inst, std::uint32_t current_pc) const {
     const std::uint32_t raw = inst.opcode;
-    // Only the AL condition can be emitted without a CPSR condition check.
-    if ((raw >> 28) != 0xEu) {
+    // The emitter supplies CPSR guards; 0xF belongs to other ARM encodings.
+    if ((raw >> 28) == 0xFu) {
         return "// Unhandled Branch";
     }
 

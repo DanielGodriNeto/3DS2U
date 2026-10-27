@@ -2,6 +2,7 @@
 
 #include "alu_translator.hpp"
 #include "branch_translator.hpp"
+#include "cond_evaluator.hpp"
 #include "mem_translator.hpp"
 
 #include <algorithm>
@@ -21,6 +22,22 @@ std::string HexAddress(std::uint32_t address) {
     text << std::hex << std::uppercase << std::setfill('0') << std::setw(8)
          << address;
     return text.str();
+}
+
+// Keep every statement of a translated instruction under the same condition.
+void EmitInstruction(std::ostream& output, const std::string& translated,
+                     const std::string& condition) {
+    const bool conditional = !condition.empty();
+    if (conditional) {
+        output << "    if (" << condition << ") {\n";
+    }
+    std::istringstream lines(translated);
+    for (std::string line; std::getline(lines, line);) {
+        output << (conditional ? "        " : "    ") << line << '\n';
+    }
+    if (conditional) {
+        output << "    }\n";
+    }
 }
 
 } // namespace
@@ -64,17 +81,23 @@ bool CppEmitter::EmitTranslatedFile(
             const auto& instructions = cfg.at(address).instructions;
             bool terminates = false;
             for (const auto& inst : instructions) {
+                const auto cond = static_cast<std::uint8_t>(inst.opcode >> 28);
+                const auto condition = ConditionEvaluator::GetConditionString(cond);
                 auto translated = branch.TranslateInstruction(inst, inst.address);
                 if (translated != "// Unhandled Branch") {
-                    output << "    " << translated << '\n';
-                    terminates = true;
-                    break;
+                    EmitInstruction(output, translated, condition);
+                    if (cond == 0xEu) {
+                        terminates = true;
+                        break;
+                    }
+                    // A failed condition must reach the block's fallthrough PC.
+                    continue;
                 }
                 translated = alu.TranslateInstruction(inst);
                 if (translated == "// Unhandled Instruction") {
                     translated = memory.TranslateInstruction(inst);
                 }
-                output << "    " << translated << '\n';
+                EmitInstruction(output, translated, condition);
             }
             // A block split at a branch target still needs sequential fallthrough.
             if (!terminates && !instructions.empty()) {

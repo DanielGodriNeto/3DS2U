@@ -16,20 +16,34 @@ namespace arm11 {
 // Architectural register values are host-native integers, never byte-swapped.
 // This initial context models unbanked registers and the CPSR flag subset only.
 struct CPUContext {
-    std::uint32_t r[16]{}; // R13 = SP, R14 = LR, R15 = PC.
-    std::uint32_t cpsr{};  // Keep flags in their architectural bit positions.
+    struct CPSR {
+        bool N{};
+        bool Z{};
+        bool C{};
+        bool V{};
+    };
 
+    std::uint32_t r[16]{}; // R13 = SP, R14 = LR, R15 = PC.
+    CPSR cpsr{};
+
+    // Architectural masks retain the existing flag-helper interface.
     static constexpr std::uint32_t N = std::uint32_t{1} << 31;
     static constexpr std::uint32_t Z = std::uint32_t{1} << 30;
     static constexpr std::uint32_t C = std::uint32_t{1} << 29;
     static constexpr std::uint32_t V = std::uint32_t{1} << 28;
 
     constexpr void SetFlag(std::uint32_t mask, bool value) noexcept {
-        cpsr = value ? (cpsr | mask) : (cpsr & ~mask);
+        if ((mask & N) != 0) cpsr.N = value;
+        if ((mask & Z) != 0) cpsr.Z = value;
+        if ((mask & C) != 0) cpsr.C = value;
+        if ((mask & V) != 0) cpsr.V = value;
     }
 
     [[nodiscard]] constexpr bool Flag(std::uint32_t mask) const noexcept {
-        return (cpsr & mask) != 0;
+        return (((mask & N) != 0) && cpsr.N) ||
+               (((mask & Z) != 0) && cpsr.Z) ||
+               (((mask & C) != 0) && cpsr.C) ||
+               (((mask & V) != 0) && cpsr.V);
     }
 
     // Logical instructions update N/Z while preserving C/V unless specified.

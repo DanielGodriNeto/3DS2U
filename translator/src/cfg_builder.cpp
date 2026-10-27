@@ -25,7 +25,8 @@ CFGBuilder::BuildBlocks(const std::vector<Instruction>& instructions) const {
     std::unordered_map<std::uint32_t, BasicBlock> blocks;
     std::unordered_set<std::uint32_t> branch_targets;
     for (const auto& inst : instructions) {
-        if ((inst.opcode & 0xFF000000u) == 0xEA000000u) {
+        if ((inst.opcode & 0x0F000000u) == 0x0A000000u &&
+            (inst.opcode >> 28) != 0xFu) {
             std::uint32_t offset = inst.opcode & 0x00FFFFFFu;
             if ((offset & 0x00800000u) != 0) {
                 offset |= 0xFF000000u;

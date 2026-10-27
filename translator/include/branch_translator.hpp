@@ -7,7 +7,7 @@
 
 namespace arm11 {
 
-// Initial ARM-state B/BX translation; conditional branches and BL are deferred.
+// ARM-state B/BX bodies; the emitter supplies conditions. BL remains deferred.
 class BranchTranslator {
 public:
     // current_pc is the instruction address, before the ARM pipeline's +8.
