@@ -1,0 +1,23 @@
+# PC Build and Binaries
+build/
+bin/
+*.o
+*.exe
+*.out
+
+# Wii U Build and Binaries (devkitPPC / wut)
+*.rpx
+*.elf
+*.elf.s
+*.elf.map
+
+# VS Code / IDEs
+.vscode/
+.idea/
+*.user
+
+# 3DS ROMs / Binaries (Do not track games)
+*.code
+*.3ds
+*.cia
+*.cxi
