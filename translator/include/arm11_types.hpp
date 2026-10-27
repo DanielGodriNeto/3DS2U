@@ -1,5 +1,7 @@
 #pragma once
 
+#include "cfg_builder.hpp"
+
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -148,23 +150,6 @@ private:
 
     std::uint32_t base_;
     std::vector<std::byte> bytes_;
-};
-
-enum class InstructionSet : std::uint8_t { ARM, Thumb };
-
-// Address and execution state together identify a block (including interworking).
-// Address is canonical: bit 0 is cleared; ARM requires 4-byte alignment.
-struct CodeLocation {
-    std::uint32_t address{};
-    InstructionSet state{InstructionSet::ARM};
-};
-
-struct BasicBlock {
-    CodeLocation start{};
-    std::uint32_t byte_size{};         // Includes the terminating instruction.
-    std::uint32_t instruction_count{};
-    std::vector<CodeLocation> successors; // Known branch/fallthrough targets.
-    bool has_indirect_successor{};     // Register-based target remains unresolved.
 };
 
 // The loader supplies raw .code at its configured virtual address, or each
