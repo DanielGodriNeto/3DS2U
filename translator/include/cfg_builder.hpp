@@ -32,8 +32,9 @@ struct BasicBlock {
 class CFGBuilder {
 public:
     // Input must contain aligned ARM instructions in strictly increasing order.
-    // B/BL/BX terminate blocks; gaps and in-buffer conditional/AL B/BL targets start
-    // blocks. Invalid input throws std::invalid_argument. CFG edges are deferred.
+    // B/BL/BX and LDM-to-PC terminate blocks. Gaps and in-buffer B/BL targets start
+    // blocks. Dynamic returns are marked; other CFG edges remain deferred.
+    // Invalid input throws std::invalid_argument.
     [[nodiscard]] std::unordered_map<std::uint32_t, BasicBlock>
     BuildBlocks(const std::vector<Instruction>& instructions) const;
 

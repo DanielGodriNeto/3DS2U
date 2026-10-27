@@ -1,4 +1,5 @@
 #include "cfg_builder.hpp"
+#include "mem_translator.hpp"
 
 #include <algorithm>
 #include <iomanip>
@@ -11,11 +12,12 @@
 namespace arm11 {
 namespace {
 
-// Keep B/BL and BX as block terminators, including conditional forms.
+// Direct branches, BX, and supported LDM-to-PC end the current block.
 constexpr bool IsBranch(std::uint32_t opcode) noexcept {
     const auto nibble = (opcode >> 24) & 0xFu;
     return nibble == 0b1010u || nibble == 0b1011u ||
-           ((opcode >> 4) & 0x00FFFFFFu) == 0x0012FFF1u;
+           ((opcode >> 4) & 0x00FFFFFFu) == 0x0012FFF1u ||
+           MemoryTranslator::IsLoadMultipleToPC({opcode, 0});
 }
 
 } // namespace
@@ -63,6 +65,9 @@ CFGBuilder::BuildBlocks(const std::vector<Instruction>& instructions) const {
         ++current->instruction_count;
         expected_address = static_cast<std::uint64_t>(inst.address) + 4;
         if (IsBranch(inst.opcode)) {
+            current->has_indirect_successor =
+                MemoryTranslator::IsLoadMultipleToPC(inst) ||
+                ((inst.opcode >> 4) & 0x00FFFFFFu) == 0x0012FFF1u;
             current = nullptr;
         }
     }
