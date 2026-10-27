@@ -22,22 +22,41 @@ std::string MemoryTranslator::TranslateInstruction(const Instruction& inst) cons
     const auto rd = (raw >> 12) & 0xFu;
     const auto offset_12 = raw & 0xFFFu;
 
-    // Other addressing modes and byte transfers need distinct AOT semantics.
-    if (register_offset || !pre_indexed || !add_offset || byte_transfer || writeback) {
+    // Register-offset and byte transfers require separate address/data decoding.
+    if (register_offset || byte_transfer) {
         return "// Unhandled Instruction";
     }
 
     std::ostringstream offset;
     offset << "0x" << std::hex << std::uppercase << offset_12;
-    const auto address = "cpu.r[" + std::to_string(rn) + "] + " + offset.str();
+    const auto base_reg = "cpu.r[" + std::to_string(rn) + "]";
     const auto reg = "cpu.r[" + std::to_string(rd) + "]";
 
-    // Read32/Write32 own guest-LE to host-native conversion; never swap here.
-    // Memory owns FCRAM, so these calls require its instance rather than a type.
-    if (load) {
-        return reg + " = memory.Read32(" + address + ");";
+    // Snapshot the original base so a load into Rd cannot change post-index math.
+    // Unsigned arithmetic preserves 32-bit guest-address wrapping in both modes.
+    std::string code = "{\n    const std::uint32_t base = " + base_reg + ";\n"
+                       "    const std::uint32_t adjusted = base " +
+                       (add_offset ? "+ " : "- ") + offset.str() + "u;\n";
+    if (!load) {
+        // STR uses the original source value even when Rn is updated first.
+        code += "    const std::uint32_t value = " + reg + ";\n";
     }
-    return "memory.Write32(" + address + ", " + reg + ");";
+    if (pre_indexed && writeback) {
+        code += "    " + base_reg + " = adjusted;\n";
+    }
+
+    // The block's memory parameter references engine-owned WiiUMemory. Its
+    // Read32/Write32 methods perform all guest-LE/PowerPC-BE conversion.
+    const std::string address = pre_indexed ? "adjusted" : "base";
+    if (load) {
+        code += "    " + reg + " = memory.Read32(" + address + ");\n";
+    } else {
+        code += "    memory.Write32(" + address + ", value);\n";
+    }
+    if (!pre_indexed) {
+        code += "    " + base_reg + " = adjusted;\n";
+    }
+    return code + "}";
 }
 
 } // namespace arm11

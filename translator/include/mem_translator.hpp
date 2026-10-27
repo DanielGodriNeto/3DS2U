@@ -6,9 +6,10 @@
 
 namespace arm11 {
 
-// Emits word LDR/STR with positive, immediate, pre-indexed offsets and no
-// writeback. Generated code expects CPUContext cpu and Memory memory instances.
-// Conditional execution and architectural PC semantics remain the caller's job.
+// Emits immediate word LDR/STR with signed-direction offsets, pre/post indexing,
+// and writeback. The block's memory parameter refers to engine-owned WiiUMemory.
+// Conditions, PC semantics, and architectural register-overlap constraints remain
+// the caller's job; privilege differences for LDRT/STRT are not modeled here.
 class MemoryTranslator {
 public:
     [[nodiscard]] std::string TranslateInstruction(const Instruction& inst) const;
