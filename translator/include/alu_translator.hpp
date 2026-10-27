@@ -6,9 +6,9 @@
 
 namespace arm11 {
 
-// Initial ARM data-processing emitter: ADD, SUB, and MOV with direct Rm.
-// Condition execution, shifted/immediate operands, PC semantics, and CPSR flag
-// updates are deferred; callers must limit execution to the supported subset.
+// ARM data-processing bodies: ADD/SUB/MOV with optional flags, and flag-only CMP.
+// Conditions belong to the emitter. Immediate/shifted operands, shifter carry,
+// and architectural PC semantics remain outside this direct-Rm subset.
 class ALUTranslator {
 public:
     [[nodiscard]] std::string TranslateInstruction(const Instruction& inst) const;
