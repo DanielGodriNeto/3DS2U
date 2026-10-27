@@ -10,7 +10,7 @@ namespace arm11 {
 
 class CppEmitter {
 public:
-    // Writes ARM block functions and InitDispatcher(BlockDispatcher&).
+    // Writes WiiUMemory block functions and global InitDispatcher(WiiUEngine&).
     // Returns false and reports I/O errors to std::cerr; output may be partial.
     // Instruction semantics are limited to those of the current translators.
     [[nodiscard]] bool EmitTranslatedFile(

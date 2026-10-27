@@ -1,16 +1,12 @@
 #include "arm11_types.hpp"
-#include <cstdint>
-#include <unordered_map>
+#include "wiiu_engine.hpp"
 
 namespace arm11 {
-
-using BlockFunction = void (*)(arm11::CPUContext&, arm11::Memory&);
-using BlockDispatcher = std::unordered_map<std::uint32_t, BlockFunction>;
 
 // Block bodies inherit the current translators' supported subset.
 // Branch execution and dispatcher scheduling are implemented separately.
 
-void block_08000000(arm11::CPUContext& cpu, arm11::Memory& memory) {
+void block_08000000(arm11::CPUContext& cpu, wiiu::WiiUMemory& memory) {
     (void)cpu;
     (void)memory;
     cpu.r[1] = cpu.r[2];
@@ -20,11 +16,9 @@ void block_08000000(arm11::CPUContext& cpu, arm11::Memory& memory) {
     // Unhandled Instruction
 }
 
-// Replace the dispatch table with the emitted block entry points.
-void InitDispatcher(BlockDispatcher& dispatcher) {
-    dispatcher.clear();
-    dispatcher.reserve(1);
-    dispatcher.emplace(0x08000000u, &block_08000000);
-}
-
 } // namespace arm11
+
+// Register translated block entry points with the Wii U engine.
+void InitDispatcher(wiiu::WiiUEngine& engine) {
+    engine.RegisterBlock(0x08000000u, &arm11::block_08000000);
+}

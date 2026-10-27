@@ -16,12 +16,15 @@ void WiiUEngine::RegisterBlock(std::uint32_t address, BlockFunction block_func) 
 
 void WiiUEngine::Run(std::uint32_t entry_point) {
     cpu.r[15] = entry_point;
+    halted_ = false;
 
-    while (true) {
+    constexpr std::uint32_t blocks_per_slice = 4096;
+    for (std::uint32_t executed = 0; executed < blocks_per_slice; ++executed) {
         const std::uint32_t pc = cpu.r[15];
         const auto it = block_table.find(pc);
         if (it == block_table.end()) {
             OSReport("[3DS2U] Fatal: no translated block at PC 0x%08" PRIX32 "\n", pc);
+            halted_ = true;
             break;
         }
 

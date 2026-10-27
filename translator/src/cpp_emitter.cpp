@@ -46,11 +46,8 @@ bool CppEmitter::EmitTranslatedFile(
         output.open(output_filename, std::ios::out | std::ios::trunc);
 
         output << "#include \"arm11_types.hpp\"\n"
-                  "#include <cstdint>\n"
-                  "#include <unordered_map>\n\n"
+                  "#include \"wiiu_engine.hpp\"\n\n"
                   "namespace arm11 {\n\n"
-                  "using BlockFunction = void (*)(arm11::CPUContext&, arm11::Memory&);\n"
-                  "using BlockDispatcher = std::unordered_map<std::uint32_t, BlockFunction>;\n\n"
                   "// Block bodies inherit the current translators' supported subset.\n"
                   "// Branch execution and dispatcher scheduling are implemented separately.\n\n";
 
@@ -58,7 +55,7 @@ bool CppEmitter::EmitTranslatedFile(
         MemoryTranslator memory;
         for (const auto address : addresses) {
             output << "void block_" << HexAddress(address)
-                   << "(arm11::CPUContext& cpu, arm11::Memory& memory) {\n"
+                   << "(arm11::CPUContext& cpu, wiiu::WiiUMemory& memory) {\n"
                       "    (void)cpu;\n"
                       "    (void)memory;\n";
 
@@ -72,15 +69,15 @@ bool CppEmitter::EmitTranslatedFile(
             output << "}\n\n";
         }
 
-        output << "// Replace the dispatch table with the emitted block entry points.\n"
-                  "void InitDispatcher(BlockDispatcher& dispatcher) {\n"
-                  "    dispatcher.clear();\n"
-                  "    dispatcher.reserve(" << addresses.size() << ");\n";
+        output << "} // namespace arm11\n\n"
+                  "// Register translated block entry points with the Wii U engine.\n"
+                  "void InitDispatcher(wiiu::WiiUEngine& engine) {\n"
+                  "    (void)engine;\n";
         for (const auto address : addresses) {
-            output << "    dispatcher.emplace(0x" << HexAddress(address)
-                   << "u, &block_" << HexAddress(address) << ");\n";
+            output << "    engine.RegisterBlock(0x" << HexAddress(address)
+                   << "u, &arm11::block_" << HexAddress(address) << ");\n";
         }
-        output << "}\n\n} // namespace arm11\n";
+        output << "}\n";
         output.close(); // Explicit close makes final write failures observable.
         return true;
     } catch (const std::exception& error) {
