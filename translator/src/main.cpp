@@ -2,45 +2,41 @@
 #include "../include/binary_loader.hpp"
 #include "../include/decoder.hpp"
 #include "../include/cfg_builder.hpp"
+#include "../include/alu_translator.hpp"
 #include <iostream>
 #include <fstream>
 
 int main() {
-    // 1. Create a dummy 3DS .code file
-    const std::string dummy_file = "dummy_3ds_code.bin";
+    // 1. Criar binário com instruções ALU Register-to-Register
+    const std::string dummy_file = "dummy_alu.bin";
     std::ofstream ofs(dummy_file, std::ios::binary);
-    // Block 1 (Starts at 0x08000000)
-    // 0xE3A00001 = MOV R0, #1
-    // 0xE0800000 = ADD R0, R0, R0
-    // 0xEAFFFFFE = B . (infinite branch - ends block 1)
     
-    // Block 2 (Starts at 0x0800000C)
-    // 0xE3A01005 = MOV R1, #5
-    // 0xE12FFF1E = BX LR (Return - ends block 2)
     uint32_t dummy_instructions[] = {
-        0xE3A00001, 0xE0800000, 0xEAFFFFFE, 
-        0xE3A01005, 0xE12FFF1E
+        0xE1A01002, // MOV R1, R2
+        0xE0813002, // ADD R3, R1, R2
+        0xE0434001, // SUB R4, R3, R1
+        0xEAFFFFFE  // B . (Salto infinito - Encerra o bloco)
     }; 
     ofs.write(reinterpret_cast<const char*>(dummy_instructions), sizeof(dummy_instructions));
     ofs.close();
 
-    // 2. Load the binary
+    // 2. Carregar e Decodificar
     arm11::BinaryLoader loader;
     if (!loader.LoadFile(dummy_file)) return 1;
-    auto buffer = loader.GetCodeBuffer();
-
-    // 3. Fetch and Decode Instructions
-    arm11::Decoder decoder;
-    auto instructions = decoder.DecodeBuffer(buffer, 0x08000000); 
-
-    // 4. Build Basic Blocks
-    arm11::CFGBuilder cfg;
-    auto blocks = cfg.BuildBlocks(instructions);
     
-    std::cout << "[3DS2U Recompiler] CFG Analysis Complete.\n";
-    std::cout << "--- Basic Block Summary ---\n";
-    cfg.PrintBlocks(blocks);
-    std::cout << "---------------------------\n";
+    arm11::Decoder decoder;
+    auto instructions = decoder.DecodeBuffer(loader.GetCodeBuffer(), 0x08000000); 
+
+    // 3. Traduzir instruções para C++
+    arm11::ALUTranslator alu;
+    std::cout << "[3DS2U Recompiler] Gerando Codigo C++ (ALU)...\n";
+    std::cout << "----------------------------------------\n";
+    for (const auto& inst : instructions) {
+        decoder.PrintInstruction(inst);
+        std::string cpp_code = alu.TranslateInstruction(inst);
+        std::cout << "   -> " << cpp_code << "\n";
+    }
+    std::cout << "----------------------------------------\n";
 
     return 0;
 }
