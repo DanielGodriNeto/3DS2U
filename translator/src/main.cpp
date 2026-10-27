@@ -1,49 +1,48 @@
-#include "../include/arm11_types.hpp"
-#include "../include/binary_loader.hpp"
-#include "../include/decoder.hpp"
-#include "../include/cfg_builder.hpp"
-#include "../include/cpp_emitter.hpp"
+#include "binary_loader.hpp"
+#include "decoder.hpp"
+#include "cfg_builder.hpp"
+#include "cpp_emitter.hpp"
+
+#include <exception>
 #include <iostream>
-#include <fstream>
+#include <string>
 
-int main() {
-    // 1. Create a binary containing various ARM11 instructions
-    const std::string dummy_file = "dummy_program.bin";
-    std::ofstream ofs(dummy_file, std::ios::binary);
-    
-    uint32_t dummy_instructions[] = {
-        0xE1A01002, // MOV R1, R2
-        0xE0813002, // ADD R3, R1, R2
-        0xEAFFFFFE  // B . (Infinite branch to itself)
-    };
-    ofs.write(reinterpret_cast<const char*>(dummy_instructions), sizeof(dummy_instructions));
-    ofs.close();
-
-    // 2. Load the Binary
-    arm11::BinaryLoader loader;
-    if (!loader.LoadFile(dummy_file)) {
-        std::cerr << "[3DS2U Recompiler] Failed to load the binary file.\n";
+int main(int argc, char** argv) {
+    if (argc < 3) {
+        std::cerr << "Usage: 3ds2u_translator <input_binary.code> <output_source.cpp>\n";
         return 1;
     }
 
-    // 3. Decode Instructions
-    arm11::Decoder decoder;
-    auto instructions = decoder.DecodeBuffer(loader.GetCodeBuffer(), 0x08000000);
+    const std::string input_path = argv[1];
+    const std::string output_path = argv[2];
+    std::cout << "[3DS2U] Starting translation\n"
+              << "[3DS2U] Input:  \"" << input_path << "\"\n"
+              << "[3DS2U] Output: \"" << output_path << "\"\n";
 
-    // 4. Build the Control Flow Graph (CFG)
-    arm11::CFGBuilder cfg;
-    auto blocks = cfg.BuildBlocks(instructions);
+    try {
+        arm11::BinaryLoader loader;
+        if (!loader.LoadFile(input_path)) {
+            std::cerr << "[3DS2U] Translation failed: cannot load \"" << input_path << "\"\n";
+            return 1;
+        }
 
-    // 5. Emit the Translated C++ Code to File
-    arm11::CppEmitter emitter;
-    const std::string output_cpp = "translated_game.cpp";
-    if (emitter.EmitTranslatedFile(output_cpp, blocks)) {
-        std::cout << "[3DS2U Recompiler] SUCCESS! Module 1 Pipeline completed.\n";
-        std::cout << "C++ file successfully generated: " << output_cpp << "\n";
-    } else {
-        std::cerr << "[3DS2U Recompiler] Failed to emit C++ file.\n";
+        arm11::Decoder decoder;
+        const auto instructions = decoder.DecodeBuffer(loader.GetCodeBuffer(), 0x08000000u);
+        arm11::CFGBuilder builder;
+        const auto blocks = builder.BuildBlocks(instructions);
+        arm11::CppEmitter emitter;
+        if (!emitter.EmitTranslatedFile(output_path, blocks)) {
+            std::cerr << "[3DS2U] Translation failed: cannot emit \"" << output_path << "\"\n";
+            return 1;
+        }
+
+        std::cout << "[3DS2U] Translation complete: \"" << input_path << "\" -> \""
+                  << output_path << "\"\n"
+                  << "[3DS2U] Decoded " << instructions.size() << " instructions into "
+                  << blocks.size() << " basic blocks\n";
+        return 0;
+    } catch (const std::exception& error) {
+        std::cerr << "[3DS2U] Translation failed: " << error.what() << '\n';
         return 1;
     }
-
-    return 0;
 }
