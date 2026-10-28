@@ -1,5 +1,7 @@
 # PC Build and Binaries
 build/
+output_translated.cpp
+wiiu_runtime/src/translated_game.cpp
 bin/
 *.o
 *.exe
