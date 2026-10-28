@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include "romfs_reader.hpp"
 #include "cro_loader.hpp"
+#include "save_manager.hpp"
 
 namespace wiiu { class WiiUMemory; class GSPGPU; class AudioDriver; }
 
@@ -54,6 +55,22 @@ public:
     static constexpr std::uint32_t kFSNotMounted = 0xD9000004u;
     static constexpr std::uint32_t kFSNotSupported = 0xD9000005u;
     static constexpr std::uint32_t kFSOutOfResources = 0xD9000006u;
+    static constexpr std::uint32_t kFSIOError=0xD9000007u;
+    static constexpr std::uint32_t kFSAlreadyExists=0xD9000008u;
+    static constexpr std::uint32_t kFSAccessDenied=0xD9000009u;
+    // SaveManager carries the current title identity and must outlive FS calls.
+    void AttachSaveManager(SaveManager& manager);
+    [[nodiscard]] std::uint32_t FSUSER_OpenArchive(std::uint32_t archive_id,std::uint64_t& handle,
+                                                 std::uint64_t extdata_id=0);
+    [[nodiscard]] std::uint32_t FSUSER_CloseArchive(std::uint64_t handle);
+    [[nodiscard]] std::uint32_t FSUSER_FormatThisUserSaveData();
+    [[nodiscard]] std::uint32_t FSUSER_CreateFile(std::uint64_t archive,const std::string& path,std::uint64_t size);
+    [[nodiscard]] std::uint32_t FSUSER_CreateDirectory(std::uint64_t archive,const std::string& path);
+    [[nodiscard]] std::uint32_t FSUSER_OpenFile(std::uint64_t archive,const std::string& path,
+                                              std::uint32_t flags,std::uint32_t& handle);
+    [[nodiscard]] std::uint32_t FSFILE_Write(WiiUMemory& memory,std::uint32_t handle,
+        std::uint64_t offset,std::uint32_t source,std::uint32_t size,std::uint32_t flags,std::uint32_t& written);
+    [[nodiscard]] std::uint32_t FSFILE_Flush(std::uint32_t handle);
     // Reader must outlive the manager's FS calls; replacing it closes all handles.
     void AttachRomFS(RomFSReader& reader) noexcept;
     [[nodiscard]] std::uint32_t FSUSER_Initialize();
@@ -80,6 +97,12 @@ public:
     [[nodiscard]] CROLoader& GetCROLoader() noexcept { return cro_loader_; }
     [[nodiscard]] std::span<const std::uint8_t> RegisteredROHashes(std::uint32_t address) const noexcept;
 private:
+    struct SaveArchive { std::uint32_t id; std::uint64_t extdata; };
+    struct SaveFile { SaveFileHandle handle; std::uint32_t archive; };
+    SaveManager* saves_{};
+    std::unordered_map<std::uint64_t,SaveArchive> save_archives_;
+    std::unordered_map<std::uint32_t,SaveFile> save_handles_;
+    std::uint64_t next_archive_=0x5341564500000001ull;
     AudioDriver* audio_driver_{};
     GSPGPU* gsp_gpu_{};
     CROLoader cro_loader_;

@@ -39,7 +39,7 @@ Wii U/Cemu: block dispatcher + memory + GX2 + VPAD + HLE
 | TEV | Six-stage source/modifier/constant tracking, Replace/Multiply/Add/Subtract, fixed GX2 combiner programs and per-draw uniform blocks through project register aliases |
 | Input | VPAD buttons mapped to 3DS masks; calibrated touch scaled to 320×240; custom readable HID registers |
 | HLE / audio | srv/apt placeholders; explicit CSND/DSP playback helpers; 16 AX voices, PCM8/PCM16 conversion, configured DSP ADPCM and synthetic volume/pitch MMIO |
-| RomFS / FS | Validated memory-backed Level-3 reader, Unicode paths, read-only file handles and explicit fs:USER/file IPC handlers |
+| RomFS / FS | Validated memory-backed Level-3 reader, Unicode paths, read-only RomFS plus persistent title-scoped SaveData/ExtData, explicit fs:USER/file IPC handlers |
 | Kernel SVC | ARM/T16 interception, image-aware page heap, CoreInit workers, address arbitration and thread/event waits |
 | Dispatch | ARM/Thumb-aware block lookup, mode exchange, bounded execution slices and yield after draw commands |
 
@@ -205,7 +205,7 @@ for Wii U platform APIs; they are not a replacement for hardware validation.
 For example, to run the production audio service/memory paths on an MSVC host:
 
 ```bat
-cl /nologo /std:c++20 /EHsc /W4 /WX /I wiiu_runtime\include /I wiiu_runtime\tests\audio_platform /I wiiu_runtime\tests\stubs wiiu_runtime\tests\audio_stub_tests.cpp wiiu_runtime\src\hle_services.cpp wiiu_runtime\src\audio_driver.cpp wiiu_runtime\src\cro_loader.cpp wiiu_runtime\src\romfs_reader.cpp wiiu_runtime\src\wiiu_memory.cpp wiiu_runtime\src\hid_manager.cpp /Fo:build\ /Fe:build\audio_stub_tests.exe
+cl /nologo /std:c++20 /EHsc /W4 /WX /I wiiu_runtime\include /I wiiu_runtime\tests\audio_platform /I wiiu_runtime\tests\stubs wiiu_runtime\tests\audio_stub_tests.cpp wiiu_runtime\src\hle_services.cpp wiiu_runtime\src\save_manager.cpp wiiu_runtime\src\audio_driver.cpp wiiu_runtime\src\cro_loader.cpp wiiu_runtime\src\romfs_reader.cpp wiiu_runtime\src\wiiu_memory.cpp wiiu_runtime\src\hid_manager.cpp /Fo:build\ /Fe:build\audio_stub_tests.exe
 build\audio_stub_tests.exe
 ```
 
@@ -213,7 +213,7 @@ Additional architecture notes: [graphics bridge](docs/graphics-mvp.md),
 [GSP command buffers](docs/gsp-command-buffers.md),
 [vertex uniforms](docs/vertex-uniforms.md),
 [texture pipeline](docs/textures.md),
-[RomFS and file services](docs/romfs.md),
+[RomFS and file services](docs/romfs.md), [persistent saves](docs/save-data.md),
 [SVC runtime](docs/svc-runtime.md),
 [VFP and T32](docs/vfp-thumb32.md),
 [CRO modules and RO HLE](docs/cro-modules.md),

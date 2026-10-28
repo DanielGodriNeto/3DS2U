@@ -72,7 +72,9 @@ See [libctru IPC encoding](https://github.com/devkitPro/libctru/blob/master/libc
 
 Nonzero `kFS*` constants are **MVP error values**, not a complete catalog of
 Nintendo FS results. Unsupported archives, flags, attributes and commands fail.
-Writes, SDMC, saves, file creation and directory IPC are unsupported.
+RomFS remains read-only. SaveData/ExtData writes, file creation and directory
+creation are handled by the separate [save archive backend](save-data.md).
+SDMC archives and directory enumeration remain unsupported.
 
 These are explicit routing functions. A future guest SVC/session dispatcher must
 call them; the current execution loop does not intercept IPC automatically.
