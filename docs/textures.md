@@ -82,7 +82,7 @@ shader translation remain unimplemented.
 ## Verification
 
 ```bat
-cl /nologo /std:c++20 /EHsc /W4 /WX /I wiiu_runtime\tests\stubs /I wiiu_runtime\include wiiu_runtime\tests\texture_tests.cpp wiiu_runtime\src\texture_decoder.cpp wiiu_runtime\src\pica200.cpp wiiu_runtime\src\gsp_gpu.cpp /Fo:build\ /Fe:build\texture_tests.exe
+cl /nologo /std:c++20 /EHsc /W4 /WX /I wiiu_runtime\tests\stubs /I wiiu_runtime\include wiiu_runtime\tests\texture_tests.cpp wiiu_runtime\src\texture_decoder.cpp wiiu_runtime\src\pica200.cpp wiiu_runtime\src\gsp_gpu.cpp wiiu_runtime\src\display_transfer.cpp /Fo:build\ /Fe:build\texture_tests.exe
 build\texture_tests.exe
 ```
 

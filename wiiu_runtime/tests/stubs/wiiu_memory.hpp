@@ -11,6 +11,7 @@ namespace wiiu {
 class WiiUMemory {
 public:
     WiiUMemory() : bytes_(0x10000) {}
+    explicit WiiUMemory(std::size_t size) : bytes_(size) {}
     explicit WiiUMemory(Pica200& bridge) : WiiUMemory() { SetPica200(bridge); }
     void SetPica200(Pica200& bridge) { pica_ = &bridge; bridge.AttachMemory(*this); }
     void RequestFrame() noexcept { frame_requested_ = true; }

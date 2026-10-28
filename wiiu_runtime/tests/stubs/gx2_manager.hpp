@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <vector>
 #include <functional>
+#include <span>
+#include <stdexcept>
 
 enum GX2SurfaceFormat { GX2_SURFACE_FORMAT_UNORM_R8_G8_B8_A8 = 0x1A };
 
@@ -12,6 +14,17 @@ namespace wiiu::gx2 {
 // Host test double; production builds use wiiu_runtime/include/gx2_manager.hpp.
 class GX2Manager {
 public:
+    enum class Output { TV, DRC };
+    void QueueDisplayBuffer(Output output, std::span<const std::uint8_t> pixels,
+                            std::uint32_t width, std::uint32_t height) {
+        if (height != 240 || width != (output == Output::TV ? 400u : 320u) ||
+            pixels.size() != static_cast<std::size_t>(width) * height * 4u)
+            throw std::invalid_argument("Invalid mock display dimensions");
+        display_images[output == Output::TV ? 0u : 1u].assign(pixels.begin(), pixels.end());
+        ++display_updates[output == Output::TV ? 0u : 1u];
+    }
+    std::array<std::vector<std::uint8_t>, 2> display_images;
+    std::array<unsigned, 2> display_updates{};
     void BindTexture0(const std::uint8_t* data, std::uint32_t width, std::uint32_t height, GX2SurfaceFormat) {
         texture.assign(data, data + static_cast<std::size_t>(width) * height * 4u);
         texture_width = width; texture_height = height; texture_enabled = true;

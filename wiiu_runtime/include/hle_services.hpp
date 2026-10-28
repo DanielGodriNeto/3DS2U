@@ -6,13 +6,16 @@
 #include "romfs_reader.hpp"
 #include "cro_loader.hpp"
 
-namespace wiiu { class WiiUMemory; }
+namespace wiiu { class WiiUMemory; class GSPGPU; }
 
 namespace wiiu::hle {
 
 // Partial HLE services; FS routing below is explicit, not a general SVC layer.
 class HLEServiceManager {
 public:
+    // Explicit GX submission helper; the attached GPU service must outlive submissions.
+    void AttachGSPGPU(GSPGPU& service) noexcept { gsp_gpu_ = &service; }
+    [[nodiscard]] std::uint32_t GSPGPU_SubmitGXCommand(WiiUMemory& memory, std::uint32_t packet_address);
     [[nodiscard]] std::uint32_t srvInit();
     [[nodiscard]] std::uint32_t aptInit();
     [[nodiscard]] std::uint32_t aptMainLoop();
@@ -70,6 +73,7 @@ public:
     [[nodiscard]] CROLoader& GetCROLoader() noexcept { return cro_loader_; }
     [[nodiscard]] std::span<const std::uint8_t> RegisteredROHashes(std::uint32_t address) const noexcept;
 private:
+    GSPGPU* gsp_gpu_{};
     CROLoader cro_loader_;
     std::map<std::uint32_t, std::vector<std::uint8_t>> ro_hashes_;
     RomFSReader* romfs_{};

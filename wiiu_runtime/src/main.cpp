@@ -10,6 +10,8 @@
 #include "hle_services.hpp"
 #include "gx2_manager.hpp"
 #include "pica200.hpp"
+#include "display_transfer.hpp"
+#include "gsp_gpu.hpp"
 
 #include <cstdint>
 #include <exception>
@@ -56,6 +58,9 @@ int main(int argc, char** argv) {
 
         // The bridge outlives the engine's memory and references the active GX2 owner.
         wiiu::Pica200 pica200(gx2);
+        wiiu::DisplayTransfer display(gx2);
+        wiiu::GSPGPU gsp_gpu(pica200, display);
+        services.AttachGSPGPU(gsp_gpu);
         // The engine owns CPUContext and the sole 128 MiB WiiUMemory instance.
         wiiu::WiiUEngine engine;
         engine.GetMemory().SetPica200(pica200);

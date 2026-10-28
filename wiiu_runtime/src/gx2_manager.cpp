@@ -19,6 +19,7 @@
 #include <limits>
 #include <stdexcept>
 #include <algorithm>
+#include <bit>
 
 namespace wiiu::gx2 {
 namespace {
@@ -125,6 +126,11 @@ void GX2Manager::FreeUploads() noexcept {
 }
 
 void GX2Manager::DrawTriangles(const void* vtx_data, std::uint32_t count, std::uint32_t stride) {
+    DrawTrianglesImpl(vtx_data, count, stride, true, Output::TV);
+}
+
+void GX2Manager::DrawTrianglesImpl(const void* vtx_data, std::uint32_t count, std::uint32_t stride,
+                                  bool mirror, Output destination) {
     if (count == 0) return;
     if (!initialized_ || !frame_active_) throw std::logic_error("Triangle draw requires an active GX2 frame");
     const std::uint64_t size = std::uint64_t{count} * stride;
@@ -140,6 +146,7 @@ void GX2Manager::DrawTriangles(const void* vtx_data, std::uint32_t count, std::u
     std::memcpy(upload, vtx_data, static_cast<std::size_t>(size));
     GX2Invalidate(GX2_INVALIDATE_MODE_CPU_ATTRIBUTE_BUFFER, upload, static_cast<std::uint32_t>(size));
     for (const auto output : {Output::TV, Output::DRC}) {
+        if (!mirror && output != destination) continue;
         BindOutput(output);
         GX2SetShaderMode(GX2_SHADER_MODE_UNIFORM_REGISTER);
         GX2SetFetchShader(texture_enabled_ ? &textured_fetch_shader_ : &fetch_shader_);
@@ -299,10 +306,6 @@ bool GX2Manager::Initialize() {
         return false;
     }
 
-    GX2SetTVBuffer(tv_.scan, tv_.scan_size, kTVMode, kFormat, kBuffering);
-    GX2SetDRCBuffer(drc_.scan, drc_.scan_size, kDRCMode, kFormat, kBuffering);
-    GX2SetTVScale(1280, 720);
-    GX2SetDRCScale(854, 480);
     GX2SetSwapInterval(1);
     initialized_ = true;
     return true;
@@ -323,6 +326,46 @@ void GX2Manager::BindOutput(Output output) {
 
 void GX2Manager::SetClearColor(float r, float g, float b, float a) noexcept {
     clear_color_ = {r, g, b, a};
+}
+
+void GX2Manager::QueueDisplayBuffer(Output output, std::span<const std::uint8_t> pixels,
+                                    std::uint32_t width, std::uint32_t height) {
+    const auto expected = output == Output::TV ? 400u : 320u;
+    if (width != expected || height != 240 || pixels.size() != static_cast<std::size_t>(width) * height * 4u)
+        throw std::invalid_argument("Invalid 3DS display snapshot dimensions");
+    DisplayImage image{{pixels.begin(), pixels.end()}, width, height};
+    display_images_[output == Output::TV ? 0u : 1u] = std::move(image);
+}
+
+void GX2Manager::PresentDisplayBuffers() {
+    const auto saved_uniforms = vertex_uniforms_;
+    std::array<float, 16> identity{};
+    for (unsigned i = 0; i < 4; ++i) identity[i * 5] = 1.0f;
+    for (const auto output : {Output::TV, Output::DRC}) {
+        const auto& image = display_images_[output == Output::TV ? 0u : 1u];
+        if (image.pixels.empty()) continue;
+        auto& target = output == Output::TV ? tv_ : drc_;
+        BindOutput(output);
+        GX2ClearColor(&target.color, 0.0f, 0.0f, 0.0f, 1.0f);
+        const auto screen_aspect = static_cast<float>(image.width) / static_cast<float>(image.height);
+        const auto output_aspect = static_cast<float>(target.color.surface.width) /
+                                  static_cast<float>(target.color.surface.height);
+        const auto x = std::min(1.0f, screen_aspect / output_aspect);
+        const auto y = std::min(1.0f, output_aspect / screen_aspect);
+        // Two triangles, float3 position + float4 white + float2 UV; guest fetch is LE.
+        const std::array<float, 54> vertices{
+            -x,-y,0, 1,1,1,1, 0,1,   x,-y,0, 1,1,1,1, 1,1,   x,y,0, 1,1,1,1, 1,0,
+            -x,-y,0, 1,1,1,1, 0,1,   x,y,0, 1,1,1,1, 1,0,   -x,y,0, 1,1,1,1, 0,0};
+        std::array<std::uint8_t, sizeof(vertices)> bytes{};
+        for (std::size_t i = 0; i < vertices.size(); ++i) {
+            const auto bits = std::bit_cast<std::uint32_t>(vertices[i]);
+            for (unsigned b = 0; b < 4; ++b) bytes[i * 4 + b] = static_cast<std::uint8_t>(bits >> (b * 8));
+        }
+        BindTexture0(image.pixels.data(), image.width, image.height, kFormat);
+        SetVertexUniforms(identity.data(), static_cast<std::uint32_t>(identity.size()));
+        DrawTrianglesImpl(bytes.data(), 6, 36, false, output);
+    }
+    vertex_uniforms_ = saved_uniforms;
 }
 
 void GX2Manager::BeginFrame() {
@@ -353,6 +396,14 @@ void GX2Manager::BeginFrame() {
 void GX2Manager::EndFrame() {
     if (!initialized_ || !frame_active_) {
         return;
+    }
+    PresentDisplayBuffers();
+    // Configure each scanout once before its first copy; never reset a pending flip.
+    if (!presented_) {
+        GX2SetTVBuffer(tv_.scan, tv_.scan_size, kTVMode, kFormat, kBuffering);
+        GX2SetDRCBuffer(drc_.scan, drc_.scan_size, kDRCMode, kFormat, kBuffering);
+        GX2SetTVScale(1280, 720);
+        GX2SetDRCScale(854, 480);
     }
     GX2CopyColorBufferToScanBuffer(&tv_.color, GX2_SCAN_TARGET_TV);
     GX2CopyColorBufferToScanBuffer(&drc_.color, GX2_SCAN_TARGET_DRC);
@@ -399,6 +450,7 @@ void GX2Manager::Shutdown() noexcept {
     ReleaseTarget(drc_);
     ReleaseTarget(tv_);
     FreeUploads();
+    for (auto& image : display_images_) image = {};
     if (fetch_shader_.program != nullptr) MEMFreeToDefaultHeap(fetch_shader_.program);
     if (vertex_shader_.program != nullptr) MEMFreeToDefaultHeap(vertex_shader_.program);
     if (pixel_shader_.program != nullptr) MEMFreeToDefaultHeap(pixel_shader_.program);

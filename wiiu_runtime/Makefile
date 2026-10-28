@@ -41,3 +41,19 @@ $(BUILD_DIR):
 	mkdir -p "$(BUILD_DIR)"
 
 -include $(OBJECTS:.o=.d)
+
+# Standalone dual-screen test, excluding the translated game's entry and dispatcher.
+DISPLAY_OBJECTS := $(filter-out $(BUILD_DIR)/main.o $(BUILD_DIR)/translated_game.o,$(OBJECTS)) $(BUILD_DIR)/display_transfer_demo.o
+.PHONY: display-demo
+display-demo: ../build/display_transfer_demo.rpx
+
+$(BUILD_DIR)/display_transfer_demo.o: tests/display_transfer_demo.cpp Makefile | $(BUILD_DIR)
+	"$(CXX)" $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c "$<" -o "$@"
+
+../build/display_transfer_demo.elf: $(DISPLAY_OBJECTS) Makefile
+	"$(CXX)" $(DISPLAY_OBJECTS) $(LDFLAGS) $(LDLIBS) -o "$@"
+
+../build/display_transfer_demo.rpx: ../build/display_transfer_demo.elf
+	"$(ELF2RPL)" "$<" "$@"
+
+-include $(BUILD_DIR)/display_transfer_demo.d

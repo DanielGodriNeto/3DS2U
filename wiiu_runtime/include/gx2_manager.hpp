@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <array>
 #include <vector>
+#include <span>
 
 namespace wiiu::gx2 {
 
@@ -45,6 +46,10 @@ public:
                       std::uint32_t height, GX2SurfaceFormat format);
     void DisableTexture0() noexcept { texture_enabled_ = false; }
     void BindOutput(Output output); // Select TV or DRC for subsequent GX2 draws.
+    // Canonical, upright RGBA8 snapshots. Top=400x240, bottom=320x240.
+    // CPU-only queueing; native drawing occurs on the GX2 owner core in EndFrame.
+    void QueueDisplayBuffer(Output output, std::span<const std::uint8_t> pixels,
+                            std::uint32_t width, std::uint32_t height);
     void EndFrame();
     void Shutdown() noexcept;
 
@@ -61,9 +66,14 @@ private:
     static void ReleaseTarget(Target& target) noexcept;
     [[nodiscard]] bool InitializeShaders();
     void FreeUploads() noexcept;
+    void DrawTrianglesImpl(const void* vertices, std::uint32_t count, std::uint32_t stride,
+                           bool mirror, Output output);
+    void PresentDisplayBuffers();
 
     Target tv_{};
     Target drc_{};
+    struct DisplayImage { std::vector<std::uint8_t> pixels; std::uint32_t width{}, height{}; };
+    std::array<DisplayImage, 2> display_images_;
     std::array<float, 4> clear_color_{0.0f, 0.0f, 0.0f, 1.0f};
     GX2VertexShader vertex_shader_{};
     GX2PixelShader pixel_shader_{};

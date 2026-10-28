@@ -29,6 +29,7 @@ Wii U/Cemu: block dispatcher + memory + GX2 + VPAD + HLE
 | Thumb-16 | Immediate arithmetic, register ALU operations, word load/store, PUSH/POP, branches, explicit mode ranges |
 | VFP / T32 | Scalar single/double VFPv2 math, conversions, transfers and FPSCR; mixed T16/T32 fetch, wide calls, selected wide ALU and byte/word memory forms |
 | CRO modules | Checked CRO0 segment mapping, named/indexed imports, ARM/Thumb relocations, shared heap reservations and explicit RO HLE helpers; execution requires pretranslated blocks |
+| Display transfer | RGBA8/RGB8/RGB565 conversion, linear/Morton blits and separate top-screen TV / bottom-screen DRC presentation |
 | Loader | Uncompressed ExeFS `.code` plus separate decrypted ExHeader; text/rodata/data and BSS mapping; raw instruction fixtures |
 | Memory | 128 MiB FCRAM buffer aligned to 4 KiB; bounded accesses; guest little-endian data swapped on big-endian PPC |
 | Graphics | MVP PICA200-to-GX2 bridge: clear color, vertex buffer, stride/count, triangle draws; float24 uniforms, default matrix vertex shader and color pixel shader |
@@ -208,6 +209,7 @@ Additional architecture notes: [graphics bridge](docs/graphics-mvp.md),
 [SVC runtime](docs/svc-runtime.md),
 [VFP and T32](docs/vfp-thumb32.md),
 [CRO modules and RO HLE](docs/cro-modules.md),
+[display transfer and dual screens](docs/display-transfer.md),
 [HID bridge](docs/hid-mvp.md), and [audio stubs](docs/audio-stubs.md).
 
 ## Current compatibility limits
