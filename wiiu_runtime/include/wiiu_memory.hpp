@@ -41,7 +41,7 @@ public:
     }
 
     // FCRAM word/halfword accesses swap guest LE bytes to/from native PPC values.
-    // HID reads and PICA200 Write32 consume numeric MMIO values without swapping.
+    // HID/audio reads and audio/PICA200 writes use numeric MMIO values directly.
     // Other out-of-window accesses throw std::out_of_range.
     [[nodiscard]] std::uint32_t Read32(std::uint32_t addr) const;
     void Write32(std::uint32_t addr, std::uint32_t val);
