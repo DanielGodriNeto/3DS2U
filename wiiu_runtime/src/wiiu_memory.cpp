@@ -1,5 +1,6 @@
 #include "wiiu_memory.hpp"
 #include "pica200.hpp"
+#include "hid_manager.hpp"
 
 #include <coreinit/memdefaultheap.h>
 
@@ -60,6 +61,10 @@ std::size_t WiiUMemory::Offset(std::uint32_t addr, std::size_t width) {
 }
 
 std::uint32_t WiiUMemory::Read32(std::uint32_t addr) const {
+    if (addr >= HIDManager::kBase && addr < HIDManager::kEnd) {
+        if (hid_ == nullptr) throw std::logic_error("HID MMIO bridge is not attached");
+        return hid_->ReadRegister(addr);
+    }
     std::uint32_t value;
     // memcpy avoids unaligned PPC loads and aliasing violations. ARM-specific
     // alignment/rotation semantics remain the instruction translator's job.
@@ -83,6 +88,10 @@ void WiiUMemory::Write32(std::uint32_t addr, std::uint32_t val) {
 }
 
 std::uint16_t WiiUMemory::Read16(std::uint32_t addr) const {
+    if (addr >= HIDManager::kBase && addr < HIDManager::kEnd) {
+        if (hid_ == nullptr) throw std::logic_error("HID MMIO bridge is not attached");
+        return static_cast<std::uint16_t>(hid_->ReadRegister(addr, 2));
+    }
     std::uint16_t value;
     std::memcpy(&value, fcram_ + Offset(addr, sizeof(value)), sizeof(value));
     return __builtin_bswap16(value);

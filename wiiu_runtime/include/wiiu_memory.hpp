@@ -7,6 +7,7 @@
 namespace wiiu {
 
 class Pica200;
+class HIDManager;
 
 // Owns a page-aligned host buffer for the guest window [0x08000000, 0x10000000).
 // This is a software address mapping; it does not map guest addresses into PPC VA.
@@ -27,6 +28,8 @@ public:
 
     // The attached bridge must outlive all MMIO writes through this memory.
     void SetPica200(Pica200& pica200) noexcept;
+    // The input owner must outlive guest reads through this memory.
+    void SetHIDManager(HIDManager& hid) noexcept { hid_ = &hid; }
     [[nodiscard]] const void* GetPointer(std::uint32_t addr, std::size_t size = 1) const;
     void LoadImage(std::uint32_t addr, std::span<const std::uint8_t> bytes);
     void ClearRange(std::uint32_t addr, std::size_t size);
@@ -37,8 +40,8 @@ public:
         return requested;
     }
 
-    // All word/halfword accesses swap guest LE bytes to/from native PPC values.
-    // Write32 intercepts PICA200 MMIO before FCRAM conversion/bounds checks.
+    // FCRAM word/halfword accesses swap guest LE bytes to/from native PPC values.
+    // HID reads and PICA200 Write32 consume numeric MMIO values without swapping.
     // Other out-of-window accesses throw std::out_of_range.
     [[nodiscard]] std::uint32_t Read32(std::uint32_t addr) const;
     void Write32(std::uint32_t addr, std::uint32_t val);
@@ -50,6 +53,7 @@ private:
 
     std::byte* fcram_;
     Pica200* pica200_{};
+    HIDManager* hid_{};
     bool frame_requested_{};
 };
 

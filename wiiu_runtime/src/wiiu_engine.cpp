@@ -7,6 +7,10 @@
 
 namespace wiiu {
 
+WiiUEngine::WiiUEngine() {
+    memory.SetHIDManager(hid_manager);
+}
+
 void WiiUEngine::RegisterBlock(std::uint32_t address, BlockFunction block_func) {
     if (block_func == nullptr) {
         throw std::invalid_argument("Cannot register a null translated block");
@@ -15,6 +19,7 @@ void WiiUEngine::RegisterBlock(std::uint32_t address, BlockFunction block_func) 
 }
 
 void WiiUEngine::Run(std::uint32_t entry_point) {
+    hid_manager.Update();
     if ((entry_point & 1u) != 0) cpu.BranchExchange(entry_point);
     else cpu.r[15] = entry_point;
     halted_ = false;

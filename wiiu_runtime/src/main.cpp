@@ -8,7 +8,6 @@
 #include "wiiu_memory.hpp"
 #include "wiiu_engine.hpp"
 #include "hle_services.hpp"
-#include "hle_hid.hpp"
 #include "gx2_manager.hpp"
 #include "pica200.hpp"
 
@@ -42,7 +41,6 @@ int main(int argc, char** argv) {
 
     wiiu::gx2::GX2Manager gx2;
     wiiu::hle::HLEServiceManager services;
-    wiiu::hle::HLEHID hid;
     bool srv_initialized = false;
     bool apt_initialized = false;
     bool vpad_initialized = false;
@@ -75,7 +73,6 @@ int main(int argc, char** argv) {
         cpu.r[15] = 0x08000000u;
 
         while (WHBProcIsRunning() && services.aptMainLoop()) {
-            hid.ScanInput();
             gx2.BeginFrame();
             engine.Run(cpu.r[15]);
             if (engine.IsHalted()) {
