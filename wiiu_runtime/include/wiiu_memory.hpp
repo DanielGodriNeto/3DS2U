@@ -40,6 +40,10 @@ public:
         return requested;
     }
     void RequestFrame() noexcept { frame_requested_ = true; }
+    // Register image/BSS ranges before execution so the heap cannot overwrite them.
+    void ReserveImageRange(std::uint32_t address, std::size_t size);
+    [[nodiscard]] std::uint32_t GetImageEnd() const noexcept { return image_end_; }
+    void SetGPUAccessAllowed(bool allowed) noexcept { gpu_access_allowed_ = allowed; }
 
     // FCRAM word/halfword accesses swap guest LE bytes to/from native PPC values.
     // HID/audio reads and audio/PICA200 writes use numeric MMIO values directly.
@@ -56,6 +60,8 @@ private:
     Pica200* pica200_{};
     HIDManager* hid_{};
     bool frame_requested_{};
+    std::uint32_t image_end_ = kVirtualBase + kPageSize;
+    bool gpu_access_allowed_ = true;
 };
 
 } // namespace wiiu

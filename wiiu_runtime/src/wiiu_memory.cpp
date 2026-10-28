@@ -9,6 +9,7 @@
 #include <cstring>
 #include <new>
 #include <stdexcept>
+#include <algorithm>
 #if defined(_MSC_VER)
 #include <cstdlib>
 #endif
@@ -77,6 +78,11 @@ void WiiUMemory::ClearRange(std::uint32_t addr, std::size_t size) {
     if (size != 0) std::memset(fcram_ + offset, 0, size);
 }
 
+void WiiUMemory::ReserveImageRange(std::uint32_t address, std::size_t size) {
+    const auto offset = Offset(address, size);
+    image_end_ = std::max(image_end_, kVirtualBase + static_cast<std::uint32_t>(offset + size));
+}
+
 std::size_t WiiUMemory::Offset(std::uint32_t addr, std::size_t width) {
     if (addr < kVirtualBase) {
         throw std::out_of_range("3DS address below FCRAM virtual window");
@@ -109,6 +115,7 @@ void WiiUMemory::Write32(std::uint32_t addr, std::uint32_t val) {
         return;
     }
     if (addr >= Pica200::kMMIOBase && addr < Pica200::kMMIOEnd) {
+        if (!gpu_access_allowed_) throw std::logic_error("GX2 MMIO is restricted to the main guest thread");
         if (pica200_ == nullptr) {
             throw std::logic_error("PICA200 MMIO bridge is not attached");
         }

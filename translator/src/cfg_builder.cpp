@@ -18,6 +18,7 @@ namespace {
 constexpr bool IsBranch(std::uint32_t opcode) noexcept {
     const auto nibble = (opcode >> 24) & 0xFu;
     return nibble == 0b1010u || nibble == 0b1011u ||
+           nibble == 0b1111u ||
            ((opcode >> 4) & 0x00FFFFFFu) == 0x0012FFF1u ||
            ((opcode >> 4) & 0x00FFFFFFu) == 0x0012FFF3u ||
            MemoryTranslator::IsLoadMultipleToPC({opcode, 0});

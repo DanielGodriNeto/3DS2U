@@ -3,6 +3,8 @@
 #include "arm11_types.hpp"
 #include "wiiu_memory.hpp"
 #include "hid_manager.hpp"
+#include "svc_handler.hpp"
+#include <coreinit/mutex.h>
 
 #include <cstdint>
 #include <unordered_map>
@@ -12,6 +14,7 @@ namespace wiiu {
 class WiiUEngine {
 public:
     WiiUEngine();
+    ~WiiUEngine();
     using BlockFunction = void (*)(arm11::CPUContext&, WiiUMemory&);
 
     // Low-bit-tagged addresses select Thumb; canonical even keys select ARM.
@@ -29,11 +32,16 @@ public:
     void Run(std::uint32_t entry_point);
 
 private:
+    static bool RunWorkerBlock(void* engine, arm11::CPUContext& context);
+    bool DispatchOne(arm11::CPUContext& context);
     arm11::CPUContext cpu{};
     HIDManager hid_manager{};
     WiiUMemory memory{};
+    SvcHandler svc_handler_;
+    OSMutex execution_mutex_{};
     std::unordered_map<std::uint32_t, BlockFunction> block_table;
     bool halted_{};
+    bool execution_started_{};
 };
 
 } // namespace wiiu

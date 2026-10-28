@@ -11,6 +11,8 @@
 #include <stdexcept>
 #include <vector>
 
+namespace wiiu { class SvcHandler; }
+
 namespace arm11 {
 
 // Architectural register values are host-native integers, never byte-swapped.
@@ -26,6 +28,10 @@ struct CPUContext {
     std::uint32_t r[16]{}; // R13 = SP, R14 = LR, R15 = PC.
     CPSR cpsr{};
     bool thumb{}; // Execution-state bit, separate from the NZCV flag subset.
+    // Runtime linkage/scheduling metadata, not architectural CPSR bits.
+    wiiu::SvcHandler* svc_handler{};
+    bool svc_yield{};
+    bool svc_exit_requested{};
 
     constexpr void BranchExchange(std::uint32_t target) noexcept {
         thumb = (target & 1u) != 0;

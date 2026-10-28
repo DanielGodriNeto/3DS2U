@@ -35,6 +35,7 @@ Wii U/Cemu: block dispatcher + memory + GX2 + VPAD + HLE
 | Input | VPAD buttons mapped to 3DS masks; calibrated touch scaled to 320×240; custom readable HID registers |
 | HLE | srv/apt initialization and loop placeholders; CSND/DSP success and readiness stubs; audio MMIO no-op writes |
 | RomFS / FS | Validated memory-backed Level-3 reader, Unicode paths, read-only file handles and explicit fs:USER/file IPC handlers |
+| Kernel SVC | ARM/T16 interception, image-aware page heap, CoreInit workers, address arbitration and thread/event waits |
 | Dispatch | ARM/Thumb-aware block lookup, mode exchange, bounded execution slices and yield after draw commands |
 
 The graphics path does **not** translate arbitrary PICA200 shaders or command
@@ -202,6 +203,7 @@ Additional architecture notes: [graphics bridge](docs/graphics-mvp.md),
 [vertex uniforms](docs/vertex-uniforms.md),
 [texture pipeline](docs/textures.md),
 [RomFS and file services](docs/romfs.md),
+[SVC runtime](docs/svc-runtime.md),
 [HID bridge](docs/hid-mvp.md), and [audio stubs](docs/audio-stubs.md).
 
 ## Current compatibility limits

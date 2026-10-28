@@ -57,6 +57,7 @@ bool CppEmitter::EmitTranslatedFile(
     try {
         // Sort the unordered CFG so identical inputs yield identical source files.
         std::vector<std::uint32_t> addresses;
+        bool uses_svc = false;
         addresses.reserve(cfg.size());
         for (const auto& [address, block] : cfg) {
             if (address != DispatchKey({block.start_address, block.start.state})) {
@@ -64,6 +65,9 @@ bool CppEmitter::EmitTranslatedFile(
                 return false;
             }
             addresses.push_back(address);
+            for (const auto& inst : block.instructions)
+                uses_svc |= inst.state == InstructionSet::Thumb ? (inst.opcode & 0xFF00u) == 0xDF00u :
+                            (inst.opcode & 0x0F000000u) == 0x0F000000u;
         }
         std::sort(addresses.begin(), addresses.end());
 
@@ -75,6 +79,7 @@ bool CppEmitter::EmitTranslatedFile(
         output << "#include \"arm11_types.hpp\"\n"
                   "#include \"wiiu_engine.hpp\"\n\n"
                   "#include <span>\n\n";
+        if (uses_svc) output << "#include \"svc_handler.hpp\"\n\n";
         if (image != nullptr) {
             output << "namespace {\n";
             std::size_t index = 0;
@@ -111,6 +116,17 @@ bool CppEmitter::EmitTranslatedFile(
             bool terminates = false;
             for (const auto& inst : instructions) {
                 if (inst.state != block.start.state) throw std::invalid_argument("Mixed modes inside a basic block");
+                const bool t16_svc = inst.state == InstructionSet::Thumb && (inst.opcode & 0xFF00u) == 0xDF00u;
+                const bool arm_svc = inst.state == InstructionSet::ARM && (inst.opcode & 0x0F000000u) == 0x0F000000u;
+                if (t16_svc || arm_svc) {
+                    const auto id = inst.opcode & (t16_svc ? 0xFFu : 0xFFFFFFu);
+                    const auto condition = t16_svc ? std::string{} :
+                        ConditionEvaluator::GetConditionString(static_cast<std::uint8_t>(inst.opcode >> 28));
+                    EmitInstruction(output, "cpu.r[15] = 0x" + HexAddress(inst.address + inst.Width()) +
+                        "u;\nwiiu::SvcHandler::Execute(cpu, 0x" + HexAddress(id) + "u);\nreturn;", condition);
+                    if (condition.empty()) { terminates = true; break; }
+                    continue;
+                }
                 if (inst.state == InstructionSet::Thumb) {
                     const auto translated = thumb.TranslateInstruction(inst);
                     if (translated == "// Unhandled Thumb Instruction") {
@@ -164,6 +180,8 @@ bool CppEmitter::EmitTranslatedFile(
             std::size_t index = 0;
             for (const auto& section : image->GetSections()) {
                 if (section.mapped_size != 0) {
+                    output << "    memory.ReserveImageRange(" << section.virtual_address << "u, "
+                           << section.mapped_size << "u);\n";
                     output << "    memory.ClearRange(" << section.virtual_address << "u, "
                            << section.mapped_size << "u);\n";
                 }

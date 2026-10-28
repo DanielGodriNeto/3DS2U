@@ -75,6 +75,7 @@ int main(int argc, char** argv) {
         while (WHBProcIsRunning() && services.aptMainLoop()) {
             gx2.BeginFrame();
             engine.Run(cpu.r[15]);
+            if (cpu.svc_exit_requested) break;
             if (engine.IsHalted()) {
                 result = 1;
                 break;

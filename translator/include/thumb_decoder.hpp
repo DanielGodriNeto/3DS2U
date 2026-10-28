@@ -28,7 +28,7 @@ public:
     }
     [[nodiscard]] static constexpr bool IsTerminator(std::uint32_t op) noexcept {
         return IsConditionalBranch(op) || (op & 0xF800u) == 0xE000u ||
-               IsExchange(op) || IsPopPC(op);
+               IsExchange(op) || IsPopPC(op) || (op & 0xFF00u) == 0xDF00u;
     }
     [[nodiscard]] static constexpr std::optional<std::uint32_t>
     BranchTarget(std::uint32_t op, std::uint32_t pc) noexcept {
