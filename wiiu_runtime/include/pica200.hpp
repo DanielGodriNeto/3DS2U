@@ -5,6 +5,7 @@
 #include <vector>
 #include <array>
 #include "texture_decoder.hpp"
+#include "tev_combiner.hpp"
 
 namespace wiiu {
 class WiiUMemory;
@@ -38,6 +39,7 @@ public:
     void WriteMMIO(std::uint32_t address, std::uint32_t value, std::uint8_t byte_mask = 0xF);
     [[nodiscard]] std::uint32_t GetRegisterValue(std::uint32_t address) const noexcept;
     [[nodiscard]] VertexUniforms GetVertexUniforms() const noexcept;
+    [[nodiscard]] const TEVCombiner& GetTEVState() const noexcept { return tev_; }
     void BeginCommandList(WiiUMemory& memory);
     // Validates queued geometry, then submits snapshots in guest draw order.
     [[nodiscard]] bool EndCommandList();
@@ -49,6 +51,7 @@ private:
         std::uint32_t address, stride, count;
         VertexUniforms uniforms;
         TextureState texture;
+        TEVCombiner tev;
     };
     [[nodiscard]] const void* ValidateDraw(const DrawRequest& request) const;
     void SubmitDraw(const DrawRequest& request);
@@ -61,6 +64,7 @@ private:
     std::vector<DrawRequest> pending_draws_;
     bool batching_{};
     TextureState texture0_{};
+    TEVCombiner tev_{};
     // MVP direct scalar register bank; first four vec4s form a row-major mat4.
     std::array<std::uint32_t, kUniformFloatCount> uniforms24_ = [] {
         std::array<std::uint32_t, kUniformFloatCount> values{};

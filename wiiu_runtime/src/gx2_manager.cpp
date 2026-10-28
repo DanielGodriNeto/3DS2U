@@ -46,22 +46,23 @@ void* Allocate(std::uint32_t size, std::uint32_t alignment) {
 
 bool GX2Manager::InitializeShaders() {
     const auto program = [](std::span<const std::uint32_t> words) -> void* {
-        auto* bytes = static_cast<std::uint8_t*>(Allocate(256, GX2_SHADER_PROGRAM_ALIGNMENT));
+        const auto size=(static_cast<std::uint32_t>(words.size_bytes())+255u)&~255u;
+        auto* bytes = static_cast<std::uint8_t*>(Allocate(size, GX2_SHADER_PROGRAM_ALIGNMENT));
         if (bytes == nullptr) return nullptr;
         for (std::size_t i = 0; i < words.size(); ++i) {
             for (unsigned j = 0; j < 4; ++j) bytes[i * 4 + j] = static_cast<std::uint8_t>(words[i] >> (j * 8));
         }
-        GX2Invalidate(GX2_INVALIDATE_MODE_CPU_SHADER, bytes, 256);
+        GX2Invalidate(GX2_INVALIDATE_MODE_CPU_SHADER, bytes, size);
         return bytes;
     };
-    vertex_shader_.program = program(shaders::vertex);
-    pixel_shader_.program = program(shaders::pixel);
+    vertex_shader_.program = program(shaders::block_vertex);
+    pixel_shader_.program = program(std::span{shaders::tev_pixel.words}.first(shaders::tev_pixel.word_count));
     if (vertex_shader_.program == nullptr || pixel_shader_.program == nullptr) return false;
-    vertex_shader_.size = pixel_shader_.size = 256;
-    vertex_shader_.mode = pixel_shader_.mode = GX2_SHADER_MODE_UNIFORM_REGISTER;
+    vertex_shader_.size=256;
+    pixel_shader_.size=(shaders::tev_pixel.word_count*4u+255u)&~255u;
+    vertex_shader_.mode = pixel_shader_.mode = GX2_SHADER_MODE_UNIFORM_BLOCK;
     vertex_shader_.regs.sq_pgm_resources_vs = 4u | (1u << 8);
-    vertex_shader_.uniformVarCount = 1;
-    vertex_shader_.uniformVars = &matrix_uniform_;
+    vertex_shader_.uniformBlockCount=1; vertex_shader_.uniformBlocks=&matrix_block_;
     vertex_shader_.regs.num_spi_vs_out_id = 1;
     vertex_shader_.regs.spi_vs_out_id[0] = 0xFFFFFF00u;
     vertex_shader_.regs.sq_vtx_semantic_clear = 0xFFFFFFFCu;
@@ -70,7 +71,8 @@ bool GX2Manager::InitializeShaders() {
     vertex_shader_.regs.sq_vtx_semantic[1] = 1;
     vertex_shader_.regs.vgt_vertex_reuse_block_cntl = 14;
     vertex_shader_.regs.vgt_hos_reuse_depth = 16;
-    pixel_shader_.regs.sq_pgm_resources_ps = 1;
+    pixel_shader_.regs.sq_pgm_resources_ps = 11;
+    pixel_shader_.uniformBlockCount=1; pixel_shader_.uniformBlocks=&tev_block_;
     pixel_shader_.regs.sq_pgm_exports_ps = 2;
     pixel_shader_.regs.spi_ps_in_control_0 = 1u | (1u << 28);
     pixel_shader_.regs.num_spi_ps_input_cntl = 1;
@@ -81,8 +83,8 @@ bool GX2Manager::InitializeShaders() {
 
     textured_vertex_shader_ = vertex_shader_;
     textured_pixel_shader_ = pixel_shader_;
-    textured_vertex_shader_.program = program(shaders::textured_vertex);
-    textured_pixel_shader_.program = program(shaders::textured_pixel);
+    textured_vertex_shader_.program = program(shaders::textured_block_vertex);
+    textured_pixel_shader_.program = program(std::span{shaders::textured_tev_pixel.words}.first(shaders::textured_tev_pixel.word_count));
     if (textured_vertex_shader_.program == nullptr || textured_pixel_shader_.program == nullptr) return false;
     textured_vertex_shader_.regs.sq_pgm_resources_vs = 5u | (1u << 8);
     textured_vertex_shader_.regs.sq_vtx_semantic_clear = 0xFFFFFFF8u;
@@ -90,7 +92,8 @@ bool GX2Manager::InitializeShaders() {
     textured_vertex_shader_.regs.sq_vtx_semantic[2] = 2;
     textured_vertex_shader_.regs.spi_vs_out_id[0] = 0xFFFF0100u;
     textured_vertex_shader_.regs.spi_vs_out_config = 2;
-    textured_pixel_shader_.regs.sq_pgm_resources_ps = 3;
+    textured_pixel_shader_.size=(shaders::textured_tev_pixel.word_count*4u+255u)&~255u;
+    textured_pixel_shader_.regs.sq_pgm_resources_ps = 11;
     textured_pixel_shader_.regs.spi_ps_in_control_0 = 2u | (1u << 28);
     textured_pixel_shader_.regs.num_spi_ps_input_cntl = 2;
     textured_pixel_shader_.regs.spi_ps_input_cntls[1] = 0x101u;
@@ -145,10 +148,20 @@ void GX2Manager::DrawTrianglesImpl(const void* vtx_data, std::uint32_t count, st
     // Raw guest float bytes are LE already; fetch streams use NO endian swap.
     std::memcpy(upload, vtx_data, static_cast<std::size_t>(size));
     GX2Invalidate(GX2_INVALIDATE_MODE_CPU_ATTRIBUTE_BUFFER, upload, static_cast<std::uint32_t>(size));
+    const auto uniform_upload=[&](const void* data,std::uint32_t bytes,std::uint32_t allocation) {
+        auto* buffer=Allocate(allocation,GX2_UNIFORM_BLOCK_ALIGNMENT);
+        if(!buffer) throw std::bad_alloc{};
+        try { frame_uploads_.push_back(buffer); } catch(...) { MEMFreeToDefaultHeap(buffer); throw; }
+        std::memcpy(buffer,data,bytes);
+        GX2Invalidate(GX2_INVALIDATE_MODE_CPU|GX2_INVALIDATE_MODE_UNIFORM_BLOCK,buffer,allocation);
+        return buffer;
+    };
+    auto* tev_buffer=uniform_upload(&tev_uniforms_,sizeof(tev_uniforms_),sizeof(tev_uniforms_));
+    auto* matrix_buffer=uniform_upload(vertex_uniforms_.data(),64,256);
     for (const auto output : {Output::TV, Output::DRC}) {
         if (!mirror && output != destination) continue;
         BindOutput(output);
-        GX2SetShaderMode(GX2_SHADER_MODE_UNIFORM_REGISTER);
+        GX2SetShaderMode(GX2_SHADER_MODE_UNIFORM_BLOCK);
         GX2SetFetchShader(texture_enabled_ ? &textured_fetch_shader_ : &fetch_shader_);
         GX2SetVertexShader(texture_enabled_ ? &textured_vertex_shader_ : &vertex_shader_);
         GX2SetPixelShader(texture_enabled_ ? &textured_pixel_shader_ : &pixel_shader_);
@@ -157,7 +170,8 @@ void GX2Manager::DrawTrianglesImpl(const void* vtx_data, std::uint32_t count, st
             GX2SetPixelSampler(&sampler0_, 0);
         }
         // Each output has a separate GX2 context; restore constants after binding it.
-        GX2SetVertexUniformReg(0, static_cast<std::uint32_t>(vertex_uniforms_.size()), vertex_uniforms_.data());
+        GX2SetVertexUniformBlock(1,256,matrix_buffer);
+        GX2SetPixelUniformBlock(0,sizeof(tev_uniforms_),tev_buffer);
         GX2SetCullOnlyControl(GX2_FRONT_FACE_CCW, FALSE, FALSE);
         GX2SetDepthOnlyControl(FALSE, FALSE, GX2_COMPARE_FUNC_ALWAYS);
         GX2SetColorControl(GX2_LOGIC_OP_COPY, 0, FALSE, TRUE);
@@ -175,8 +189,12 @@ void GX2Manager::SetVertexUniforms(const float* data, std::uint32_t count) {
     if (!initialized_ || !frame_active_)
         throw std::logic_error("Vertex uniform update requires an active GX2 frame");
     std::copy_n(data, count, vertex_uniforms_.begin());
-    // Native float values: GX2 emits PPC numeric constants into the command stream.
-    GX2SetVertexUniformReg(0, count, vertex_uniforms_.data());
+    // The draw snapshots the matrix into an aligned VS uniform block.
+}
+
+void GX2Manager::BindTEVState(const TEVCombiner& tev) {
+    if(!initialized_ || !frame_active_) throw std::logic_error("TEV binding requires an active GX2 frame");
+    tev_uniforms_=tev.BuildUniformBlock();
 }
 
 void GX2Manager::BindTexture0(const std::uint8_t* pixels, std::uint32_t width,
@@ -339,6 +357,8 @@ void GX2Manager::QueueDisplayBuffer(Output output, std::span<const std::uint8_t>
 
 void GX2Manager::PresentDisplayBuffers() {
     const auto saved_uniforms = vertex_uniforms_;
+    const auto saved_tev=tev_uniforms_;
+    tev_uniforms_=TEVCombiner{}.BuildUniformBlock();
     std::array<float, 16> identity{};
     for (unsigned i = 0; i < 4; ++i) identity[i * 5] = 1.0f;
     for (const auto output : {Output::TV, Output::DRC}) {
@@ -366,6 +386,7 @@ void GX2Manager::PresentDisplayBuffers() {
         DrawTrianglesImpl(bytes.data(), 6, 36, false, output);
     }
     vertex_uniforms_ = saved_uniforms;
+    tev_uniforms_=saved_tev;
 }
 
 void GX2Manager::BeginFrame() {

@@ -8,6 +8,7 @@
 namespace wiiu {
 
 std::uint32_t Pica200::GetRegisterValue(std::uint32_t address) const noexcept {
+    if(address>=TEVCombiner::kBase && address<TEVCombiner::kEnd) return tev_.ReadRegister(address);
     const auto it = registers_.find(address);
     if (it != registers_.end()) return it->second;
     if (address >= kUniformBase && address < kUniformEnd && (address & 3u) == 0)
@@ -44,6 +45,7 @@ bool Pica200::EndCommandList() {
 }
 
 const void* Pica200::ValidateDraw(const DrawRequest& request) const {
+    (void)request.tev.BuildUniformBlock();
     if (memory_ == nullptr) throw std::logic_error("PICA200 vertex memory is not attached");
     if ((request.address & 3u) != 0 || request.stride < 28 || request.stride > 2044 ||
         (request.stride & 3u) != 0 || request.count % 3 != 0) {
@@ -75,6 +77,7 @@ void Pica200::SubmitDraw(const DrawRequest& request) {
         gx2_manager_.BindTexture0(rgba.data(), width, height, GX2_SURFACE_FORMAT_UNORM_R8_G8_B8_A8);
     } else gx2_manager_.DisableTexture0();
     gx2_manager_.SetVertexUniforms(request.uniforms.data(), kUniformFloatCount);
+    gx2_manager_.BindTEVState(request.tev);
     gx2_manager_.DrawTriangles(vertices, request.count, request.stride);
 }
 
@@ -92,6 +95,7 @@ void Pica200::WriteMMIO(std::uint32_t address, std::uint32_t value, std::uint8_t
     if (address < kMMIOBase || address >= kMMIOEnd || (address & 3u) != 0)
         return; // Preserve the direct-MMIO bridge's ignored-address behavior.
     if ((byte_mask & 0xFu) == 0) return;
+    if(tev_.WriteRegister(address,value,byte_mask)) return;
     std::uint32_t bits = 0;
     for (unsigned byte = 0; byte < 4; ++byte)
         if ((byte_mask & (1u << byte)) != 0) bits |= 0xFFu << (byte * 8u);
@@ -119,7 +123,7 @@ void Pica200::WriteMMIO(std::uint32_t address, std::uint32_t value, std::uint8_t
     case kDrawRegister: {
         if ((byte_mask & 1u) == 0) return;
         if (value != 1 || vertex_count_ == 0) return;
-        const DrawRequest request{vbo_addr_, vbo_stride_, vertex_count_, GetVertexUniforms(), texture0_};
+        const DrawRequest request{vbo_addr_, vbo_stride_, vertex_count_, GetVertexUniforms(), texture0_, tev_};
         if (batching_) pending_draws_.push_back(request);
         else SubmitDraw(request);
         break;

@@ -16,6 +16,7 @@
 #include <array>
 #include <vector>
 #include <span>
+#include "tev_combiner.hpp"
 
 namespace wiiu::gx2 {
 
@@ -39,8 +40,9 @@ public:
     // Requires an active frame. Uploads remain owned until GPU completion.
     void DrawTriangles(const void* vtx_data, std::uint32_t count, std::uint32_t stride);
     // Count is scalar floats (a multiple of four), maximum 96 vec4s.
-    // Register mode: row-major modelview/projection matrix occupies c0-c3.
+    // First four vec4s form the row-major matrix uploaded to VS uniform block 1.
     void SetVertexUniforms(const float* uniform_data, std::uint32_t count);
+    void BindTEVState(const TEVCombiner& tev);
     // Input is tightly packed linear RGBA8; uploads are retained until DrawDone.
     void BindTexture0(const std::uint8_t* pixel_data, std::uint32_t width,
                       std::uint32_t height, GX2SurfaceFormat format);
@@ -85,12 +87,14 @@ private:
     GX2Sampler sampler0_{};
     GX2SamplerVar sampler_var_{"texSampler", GX2_SAMPLER_VAR_TYPE_SAMPLER_2D, 0};
     bool texture_enabled_{};
+    TEVCombiner::UniformBlock tev_uniforms_=TEVCombiner{}.BuildUniformBlock();
+    GX2UniformBlock tev_block_{"tev_state",0,sizeof(TEVCombiner::UniformBlock)};
+    GX2UniformBlock matrix_block_{"modelview_projection",1,256};
     std::array<float, 384> vertex_uniforms_ = [] {
         std::array<float, 384> values{};
         for (unsigned i = 0; i < 4; ++i) values[i * 5] = 1.0f;
         return values;
     }();
-    GX2UniformVar matrix_uniform_{"modelview_projection", GX2_SHADER_VAR_TYPE_FLOAT4X4, 1, 0, -1};
     std::vector<void*> frame_uploads_;
     bool gx2_started_{};
     bool initialized_{};

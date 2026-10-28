@@ -70,19 +70,20 @@ for both TV and DRC contexts. Frame completion clears stale descriptors after
 freeing uploads; subsequent guest draws rebind their captured texture state.
 
 The textured fetch/vertex variant exports color and UV while retaining the matrix
-transform. The pixel variant samples unit zero and computes
-`outColor = inColor * texture(texSampler, inUV)` with four MUL instructions.
+transform. The pixel variant samples unit zero and runs the
+[six-stage TEV combiner](tev-combiner.md). Its default configuration computes
+`outColor = inColor * texture(texSampler, inUV)` through uniform-selected math.
 An untextured shader variant preserves existing color-only fixtures. Shader
 encoding references: [Latte instruction fields](https://github.com/decaf-emu/decaf-emu/blob/master/src/libgpu/latte/latte_instructions.h).
 
 Only one base texture level is uploaded. Mipmaps, ETC compression, other PICA
-formats, texture caches, filtering/wrapping registers, TEV stages and arbitrary
+formats, texture caches, filtering/wrapping registers and arbitrary
 shader translation remain unimplemented.
 
 ## Verification
 
 ```bat
-cl /nologo /std:c++20 /EHsc /W4 /WX /I wiiu_runtime\tests\stubs /I wiiu_runtime\include wiiu_runtime\tests\texture_tests.cpp wiiu_runtime\src\texture_decoder.cpp wiiu_runtime\src\pica200.cpp wiiu_runtime\src\gsp_gpu.cpp wiiu_runtime\src\display_transfer.cpp /Fo:build\ /Fe:build\texture_tests.exe
+cl /nologo /std:c++20 /EHsc /W4 /WX /I wiiu_runtime\tests\stubs /I wiiu_runtime\include wiiu_runtime\tests\texture_tests.cpp wiiu_runtime\src\texture_decoder.cpp wiiu_runtime\src\pica200.cpp wiiu_runtime\src\tev_combiner.cpp wiiu_runtime\src\gsp_gpu.cpp wiiu_runtime\src\display_transfer.cpp /Fo:build\ /Fe:build\texture_tests.exe
 build\texture_tests.exe
 ```
 

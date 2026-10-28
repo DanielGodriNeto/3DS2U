@@ -6,6 +6,7 @@
 #include <functional>
 #include <span>
 #include <stdexcept>
+#include "tev_combiner.hpp"
 
 enum GX2SurfaceFormat { GX2_SURFACE_FORMAT_UNORM_R8_G8_B8_A8 = 0x1A };
 
@@ -14,6 +15,9 @@ namespace wiiu::gx2 {
 // Host test double; production builds use wiiu_runtime/include/gx2_manager.hpp.
 class GX2Manager {
 public:
+    void BindTEVState(const TEVCombiner& tev) { tev_uniforms=tev.BuildUniformBlock(); tev_history.push_back(tev_uniforms); }
+    TEVCombiner::UniformBlock tev_uniforms{};
+    std::vector<TEVCombiner::UniformBlock> tev_history;
     enum class Output { TV, DRC };
     void QueueDisplayBuffer(Output output, std::span<const std::uint8_t> pixels,
                             std::uint32_t width, std::uint32_t height) {

@@ -4,6 +4,7 @@
 #include "wiiu_memory.hpp"
 #include "gx2_manager.hpp"
 #include "default_shaders.hpp"
+#include "tev_shader_interpreter.hpp"
 #include <algorithm>
 #include <array>
 #include <iostream>
@@ -118,24 +119,19 @@ int main() {
     Reject([&] { pica.WriteMMIO(wiiu::Pica200::kDrawRegister, 1); });
     Check(graphics.draws == 2);
 
-    // Check texture sample operands and simulate the actual four multiply instructions.
-    const auto& vs = wiiu::gx2::shaders::textured_vertex;
-    Check(vs[2] == 5 && ((vs[4] >> 15) & 127u) == 4);
+    // Check the active block-mode vertex program and execute the actual TEV pixel words.
+    const auto& vs = wiiu::gx2::shaders::textured_block_vertex;
+    Check((vs[2]&0x3FFFFFu) == 5 && ((vs[4] >> 15) & 127u) == 4);
     Check((vs[8] & 8191u) == 1 && ((vs[8] >> 15) & 127u) == 3);
     for (unsigned instruction = 0; instruction < 16; ++instruction)
         Check(((vs[11 + instruction * 2] >> 21) & 127u) == 4);
-    const auto& ps = wiiu::gx2::shaders::textured_pixel;
-    Check((ps[8] & 31u) == 0x10 && ((ps[8] >> 16) & 127u) == 1);
-    Check((ps[9] & 127u) == 2 && ((ps[10] >> 15) & 31u) == 0);
+    const auto& ps = wiiu::gx2::shaders::textured_tev_pixel;
+    const auto sample=ps.words[0]*2u;
+    Check((ps.words[sample] & 31u) == 0x10 && ((ps.words[sample] >> 16) & 127u) == 1);
+    Check((ps.words[sample+1] & 127u) == 2 && ((ps.words[sample+2] >> 15) & 31u) == 0);
     const std::array<float, 4> color{0.5f, 0.25f, 0.75f, 1};
     const std::array<float, 4> texel{0.2f, 0.4f, 0.8f, 0.5f};
-    std::array<float, 4> result{};
-    for (unsigned lane = 0; lane < 4; ++lane) {
-        const auto a = ps[12 + lane * 2], b = ps[13 + lane * 2];
-        Check((a & 511u) == 0 && ((a >> 13) & 511u) == 2);
-        Check(((b >> 7) & 2047u) == 2 && (b & 16u) != 0);
-        result[(b >> 29) & 3u] = color[(a >> 10) & 3u] * texel[(a >> 23) & 3u];
-    }
+    const auto result=tev_test::Run(ps,wiiu::TEVCombiner{}.BuildUniformBlock(),color,texel);
     for (unsigned lane = 0; lane < 4; ++lane) Check(result[lane] == color[lane] * texel[lane]);
     std::cout << "Texture Morton/RGBA/packed-format, bounds, batch and shader tests passed.\n";
 }

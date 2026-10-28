@@ -47,19 +47,16 @@ The first four vec4s are the rows of a combined modelview/projection mat4.
 The default shader computes `clip_position = matrix * vec4(position.xyz, 1)`.
 Color is passed through unchanged. The default matrix is identity so existing
 triangle fixtures continue to work without uploading uniforms. Other uniforms
-are stored/uploaded but are not referenced by this default shader.
+are stored but are not referenced by this default shader.
 
 `SetVertexUniforms` counts **scalar floats**, requires a nonzero multiple of four
-up to 384, and runs during an active GX2 frame. It uses native numeric floats
-with `GX2SetVertexUniformReg(0, count, data)`. Constants are rebound after each
-TV/DRC context switch to avoid losing them when the output target changes.
-
-GX2 uniform registers and uniform blocks are distinct interfaces. The requested
-`GX2SetVertexUniformReg` path uses `GX2_SHADER_MODE_UNIFORM_REGISTER`, matrix
-registers c0–c3 (offset zero), and a standalone matrix variable in reflection.
-It does **not** claim a memory uniform block at binding zero. A true block-backed
-shader would instead require uniform-block mode, constant-cache operands,
-aligned retained GPU memory, and `GX2SetVertexUniformBlock`.
+up to 384, and runs during an active GX2 frame. It caches native numeric floats.
+The [TEV pipeline](tev-combiner.md) now snapshots the first 16 scalars into an
+aligned VS uniform block at binding 1 with `GX2SetVertexUniformBlock`, replacing
+the earlier register-mode upload. Blocks are rebound after each TV/DRC context
+switch and retained until GPU completion. The default vertex program uses KCache
+operands in `GX2_SHADER_MODE_UNIFORM_BLOCK`, alongside the TEV pixel block at
+binding 0. Remaining stored vertex uniforms are reserved for future shaders.
 See [wut shader interfaces](https://github.com/devkitPro/wut/blob/master/include/gx2/shaders.h).
 
 The embedded Latte vertex program uses four DOT4 groups and exports the computed

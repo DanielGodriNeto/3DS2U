@@ -72,3 +72,18 @@ $(BUILD_DIR)/audio_driver_demo.o: tests/audio_driver_demo.cpp Makefile | $(BUILD
 	"$(ELF2RPL)" "$<" "$@"
 
 -include $(BUILD_DIR)/audio_driver_demo.d
+
+TEV_OBJECTS := $(filter-out $(BUILD_DIR)/main.o $(BUILD_DIR)/translated_game.o,$(OBJECTS)) $(BUILD_DIR)/tev_demo.o
+.PHONY: tev-demo
+tev-demo: ../build/tev_demo.rpx
+
+$(BUILD_DIR)/tev_demo.o: tests/tev_demo.cpp Makefile | $(BUILD_DIR)
+	"$(CXX)" $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c "$<" -o "$@"
+
+../build/tev_demo.elf: $(TEV_OBJECTS) Makefile
+	"$(CXX)" $(TEV_OBJECTS) $(LDFLAGS) $(LDLIBS) -o "$@"
+
+../build/tev_demo.rpx: ../build/tev_demo.elf
+	"$(ELF2RPL)" "$<" "$@"
+
+-include $(BUILD_DIR)/tev_demo.d

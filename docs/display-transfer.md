@@ -70,7 +70,7 @@ framebuffer selection to avoid presentation.
 Each screen owns a persistent RGBA8 snapshot, independent of later FCRAM writes or
 the other screen. `EndFrame` uploads the snapshots as textures and draws separate
 letterboxed quads into distinct GX2 color/depth/context targets: 1280x720 TV and
-854x480 DRC. Register-mode shaders use an identity matrix for the presentation
+854x480 DRC. Uniform-block shaders use an identity matrix for the presentation
 quads; the guest matrix is restored afterward. The scan buffers are configured
 with `GX2SetTVBuffer`/`GX2SetDRCBuffer` during the first end pass, then copied and
 swapped each frame without resetting pending flips. GPU uploads survive until
@@ -82,7 +82,7 @@ when display snapshots are absent.
 From an MSVC developer prompt at the project root:
 
 ```bat
-cl /nologo /std:c++20 /EHsc /W4 /WX /I wiiu_runtime\tests\stubs /I wiiu_runtime\include wiiu_runtime\tests\display_transfer_tests.cpp wiiu_runtime\src\display_transfer.cpp wiiu_runtime\src\gsp_gpu.cpp wiiu_runtime\src\pica200.cpp wiiu_runtime\src\texture_decoder.cpp /Fo:build\ /Fe:build\display_transfer_tests.exe
+cl /nologo /std:c++20 /EHsc /W4 /WX /I wiiu_runtime\tests\stubs /I wiiu_runtime\include wiiu_runtime\tests\display_transfer_tests.cpp wiiu_runtime\src\display_transfer.cpp wiiu_runtime\src\gsp_gpu.cpp wiiu_runtime\src\pica200.cpp wiiu_runtime\src\tev_combiner.cpp wiiu_runtime\src\texture_decoder.cpp /Fo:build\ /Fe:build\display_transfer_tests.exe
 build\display_transfer_tests.exe
 ```
 

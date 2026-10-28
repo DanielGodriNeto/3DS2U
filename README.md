@@ -36,6 +36,7 @@ Wii U/Cemu: block dispatcher + memory + GX2 + VPAD + HLE
 | Graphics | MVP PICA200-to-GX2 bridge: clear color, vertex buffer, stride/count, triangle draws; float24 uniforms, default matrix vertex shader and color pixel shader |
 | GPU command buffers | PICA packet parser, byte masks, FIFO/consecutive writes, FINALIZE and deferred draw snapshots through the MVP bridge |
 | Textures | 8×8 Morton deswizzling for RGBA8/RGB565/RGBA4444, linear RGBA8 GX2 upload, UV/color-modulated sampling on texture unit 0 |
+| TEV | Six-stage source/modifier/constant tracking, Replace/Multiply/Add/Subtract, fixed GX2 combiner programs and per-draw uniform blocks through project register aliases |
 | Input | VPAD buttons mapped to 3DS masks; calibrated touch scaled to 320×240; custom readable HID registers |
 | HLE / audio | srv/apt placeholders; explicit CSND/DSP playback helpers; 16 AX voices, PCM8/PCM16 conversion, configured DSP ADPCM and synthetic volume/pitch MMIO |
 | RomFS / FS | Validated memory-backed Level-3 reader, Unicode paths, read-only file handles and explicit fs:USER/file IPC handlers |
@@ -219,6 +220,7 @@ Additional architecture notes: [graphics bridge](docs/graphics-mvp.md),
 [display transfer and dual screens](docs/display-transfer.md),
 [native AX audio](docs/audio-driver.md),
 [3DSX extraction and packaging](docs/extraction-pipeline.md),
+[TEV combiner](docs/tev-combiner.md),
 [HID bridge](docs/hid-mvp.md), and [audio stubs](docs/audio-stubs.md).
 
 ## Current compatibility limits
