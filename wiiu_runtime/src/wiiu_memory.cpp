@@ -28,6 +28,25 @@ WiiUMemory::~WiiUMemory() noexcept {
     MEMFreeToDefaultHeap(fcram_);
 }
 
+void WiiUMemory::SetPica200(Pica200& pica200) noexcept {
+    pica200_ = &pica200;
+    pica200.AttachMemory(*this);
+}
+
+const void* WiiUMemory::GetPointer(std::uint32_t addr, std::size_t size) const {
+    return fcram_ + Offset(addr, size);
+}
+
+void WiiUMemory::LoadImage(std::uint32_t addr, std::span<const std::uint8_t> bytes) {
+    const auto offset = Offset(addr, bytes.size());
+    if (!bytes.empty()) std::memcpy(fcram_ + offset, bytes.data(), bytes.size());
+}
+
+void WiiUMemory::ClearRange(std::uint32_t addr, std::size_t size) {
+    const auto offset = Offset(addr, size);
+    if (size != 0) std::memset(fcram_ + offset, 0, size);
+}
+
 std::size_t WiiUMemory::Offset(std::uint32_t addr, std::size_t width) {
     if (addr < kVirtualBase) {
         throw std::out_of_range("3DS address below FCRAM virtual window");
@@ -55,6 +74,7 @@ void WiiUMemory::Write32(std::uint32_t addr, std::uint32_t val) {
         }
         // The MMIO bridge consumes numeric register values, not swapped bytes.
         pica200_->WriteMMIO(addr, val);
+        if (addr == Pica200::kDrawRegister && val == 1) frame_requested_ = true;
         return;
     }
     const auto offset = Offset(addr, sizeof(val));

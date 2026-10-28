@@ -7,10 +7,12 @@
 #endif
 #include <gx2/context.h>
 #include <gx2/display.h>
+#include <gx2/shaders.h>
 #include <coreinit/memheap.h>
 
 #include <cstdint>
 #include <array>
+#include <vector>
 
 namespace wiiu::gx2 {
 
@@ -30,6 +32,9 @@ public:
     [[nodiscard]] bool Initialize();
     void BeginFrame(); // Clears both outputs and selects the TV render target.
     void SetClearColor(float r, float g, float b, float a) noexcept;
+    // Guest vertices are LE float3 position + float4 color; stride may include padding.
+    // Requires an active frame. Uploads remain owned until GPU completion.
+    void DrawTriangles(const void* vtx_data, std::uint32_t count, std::uint32_t stride);
     void BindOutput(Output output); // Select TV or DRC for subsequent GX2 draws.
     void EndFrame();
     void Shutdown() noexcept;
@@ -45,10 +50,16 @@ private:
 
     [[nodiscard]] bool AllocateTarget(Target& target, Output output);
     static void ReleaseTarget(Target& target) noexcept;
+    [[nodiscard]] bool InitializeShaders();
+    void FreeUploads() noexcept;
 
     Target tv_{};
     Target drc_{};
     std::array<float, 4> clear_color_{0.0f, 0.0f, 0.0f, 1.0f};
+    GX2VertexShader vertex_shader_{};
+    GX2PixelShader pixel_shader_{};
+    GX2FetchShader fetch_shader_{};
+    std::vector<void*> frame_uploads_;
     bool gx2_started_{};
     bool initialized_{};
     bool frame_active_{};

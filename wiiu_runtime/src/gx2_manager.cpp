@@ -1,4 +1,5 @@
 #include "gx2_manager.hpp"
+#include "default_shaders.hpp"
 
 #include <coreinit/debug.h>
 #include <coreinit/memdefaultheap.h>
@@ -8,10 +9,15 @@
 #include <gx2/registers.h>
 #include <gx2/state.h>
 #include <gx2/swap.h>
+#include <gx2/draw.h>
+#include <gx2/utils.h>
 
 #include <cstring>
 #include <initializer_list>
 #include <new>
+#include <span>
+#include <limits>
+#include <stdexcept>
 
 namespace wiiu::gx2 {
 namespace {
@@ -35,6 +41,92 @@ void* Allocate(std::uint32_t size, std::uint32_t alignment) {
 }
 
 } // namespace
+
+bool GX2Manager::InitializeShaders() {
+    const auto program = [](std::span<const std::uint32_t> words) -> void* {
+        auto* bytes = static_cast<std::uint8_t*>(Allocate(256, GX2_SHADER_PROGRAM_ALIGNMENT));
+        if (bytes == nullptr) return nullptr;
+        for (std::size_t i = 0; i < words.size(); ++i) {
+            for (unsigned j = 0; j < 4; ++j) bytes[i * 4 + j] = static_cast<std::uint8_t>(words[i] >> (j * 8));
+        }
+        GX2Invalidate(GX2_INVALIDATE_MODE_CPU_SHADER, bytes, 256);
+        return bytes;
+    };
+    vertex_shader_.program = program(shaders::vertex);
+    pixel_shader_.program = program(shaders::pixel);
+    if (vertex_shader_.program == nullptr || pixel_shader_.program == nullptr) return false;
+    vertex_shader_.size = pixel_shader_.size = 256;
+    vertex_shader_.mode = pixel_shader_.mode = GX2_SHADER_MODE_UNIFORM_REGISTER;
+    vertex_shader_.regs.sq_pgm_resources_vs = 3u | (1u << 8);
+    vertex_shader_.regs.num_spi_vs_out_id = 1;
+    vertex_shader_.regs.spi_vs_out_id[0] = 0xFFFFFF00u;
+    vertex_shader_.regs.sq_vtx_semantic_clear = 0xFFFFFFFCu;
+    vertex_shader_.regs.num_sq_vtx_semantic = 2;
+    vertex_shader_.regs.sq_vtx_semantic[0] = 0;
+    vertex_shader_.regs.sq_vtx_semantic[1] = 1;
+    vertex_shader_.regs.vgt_vertex_reuse_block_cntl = 14;
+    vertex_shader_.regs.vgt_hos_reuse_depth = 16;
+    pixel_shader_.regs.sq_pgm_resources_ps = 1;
+    pixel_shader_.regs.sq_pgm_exports_ps = 2;
+    pixel_shader_.regs.spi_ps_in_control_0 = 1u | (1u << 28);
+    pixel_shader_.regs.num_spi_ps_input_cntl = 1;
+    pixel_shader_.regs.spi_ps_input_cntls[0] = 0x100u;
+    pixel_shader_.regs.cb_shader_mask = 0xFu;
+    pixel_shader_.regs.cb_shader_control = 1;
+    pixel_shader_.regs.db_shader_control = 0x10u;
+
+    const GX2AttribStream attributes[2]{
+        {0, 0, 0, GX2_ATTRIB_FORMAT_FLOAT_32_32_32, GX2_ATTRIB_INDEX_PER_VERTEX,
+         0, GX2_SEL_MASK(0, 1, 2, 5), GX2_ENDIAN_SWAP_NONE},
+        {1, 0, 12, GX2_ATTRIB_FORMAT_FLOAT_32_32_32_32, GX2_ATTRIB_INDEX_PER_VERTEX,
+         0, GX2_SEL_MASK(0, 1, 2, 3), GX2_ENDIAN_SWAP_NONE},
+    };
+    const auto size = GX2CalcFetchShaderSizeEx(2, GX2_FETCH_SHADER_TESSELLATION_NONE,
+                                             GX2_TESSELLATION_MODE_DISCRETE);
+    auto* fetch = static_cast<std::uint8_t*>(Allocate(size, GX2_SHADER_PROGRAM_ALIGNMENT));
+    if (fetch == nullptr) return false;
+    GX2InitFetchShaderEx(&fetch_shader_, fetch, 2, attributes, GX2_FETCH_SHADER_TESSELLATION_NONE,
+                         GX2_TESSELLATION_MODE_DISCRETE);
+    GX2Invalidate(GX2_INVALIDATE_MODE_CPU_SHADER, fetch, size);
+    return true;
+}
+
+void GX2Manager::FreeUploads() noexcept {
+    for (auto* upload : frame_uploads_) MEMFreeToDefaultHeap(upload);
+    frame_uploads_.clear();
+}
+
+void GX2Manager::DrawTriangles(const void* vtx_data, std::uint32_t count, std::uint32_t stride) {
+    if (count == 0) return;
+    if (!initialized_ || !frame_active_) throw std::logic_error("Triangle draw requires an active GX2 frame");
+    const std::uint64_t size = std::uint64_t{count} * stride;
+    if (vtx_data == nullptr || count % 3 != 0 || stride < 28 || stride > 2044 ||
+        (stride & 3u) != 0 || size > 128u * 1024u * 1024u) {
+        throw std::invalid_argument("Invalid GX2 MVP vertex buffer");
+    }
+    auto* upload = Allocate(static_cast<std::uint32_t>(size), GX2_VERTEX_BUFFER_ALIGNMENT);
+    if (upload == nullptr) throw std::bad_alloc{};
+    try { frame_uploads_.push_back(upload); }
+    catch (...) { MEMFreeToDefaultHeap(upload); throw; }
+    // Raw guest float bytes are LE already; fetch streams use NO endian swap.
+    std::memcpy(upload, vtx_data, static_cast<std::size_t>(size));
+    GX2Invalidate(GX2_INVALIDATE_MODE_CPU_ATTRIBUTE_BUFFER, upload, static_cast<std::uint32_t>(size));
+    for (const auto output : {Output::TV, Output::DRC}) {
+        BindOutput(output);
+        GX2SetShaderMode(GX2_SHADER_MODE_UNIFORM_REGISTER);
+        GX2SetFetchShader(&fetch_shader_);
+        GX2SetVertexShader(&vertex_shader_);
+        GX2SetPixelShader(&pixel_shader_);
+        GX2SetCullOnlyControl(GX2_FRONT_FACE_CCW, FALSE, FALSE);
+        GX2SetDepthOnlyControl(FALSE, FALSE, GX2_COMPARE_FUNC_ALWAYS);
+        GX2SetColorControl(GX2_LOGIC_OP_COPY, 0, FALSE, TRUE);
+        const auto none = static_cast<GX2ChannelMask>(0);
+        GX2SetTargetChannelMasks(GX2_CHANNEL_MASK_RGBA, none, none, none, none, none, none, none);
+        GX2SetAttribBuffer(0, static_cast<std::uint32_t>(size), stride, upload);
+        GX2DrawEx(GX2_PRIMITIVE_MODE_TRIANGLES, count, 0, 1);
+    }
+    BindOutput(Output::TV);
+}
 
 GX2Manager::~GX2Manager() noexcept {
     Shutdown();
@@ -120,7 +212,7 @@ bool GX2Manager::Initialize() {
     GX2SetTVEnable(FALSE);
     GX2SetDRCEnable(FALSE);
 
-    if (!AllocateTarget(tv_, Output::TV) || !AllocateTarget(drc_, Output::DRC)) {
+    if (!AllocateTarget(tv_, Output::TV) || !AllocateTarget(drc_, Output::DRC) || !InitializeShaders()) {
         OSReport("[3DS2U GX2] Failed to allocate aligned graphics resources\n");
         Shutdown();
         return false;
@@ -187,6 +279,7 @@ void GX2Manager::EndFrame() {
     GX2Flush();
     GX2DrawDone();
     // Enable scanout only once both outputs contain a completed frame.
+    FreeUploads();
     GX2SetTVEnable(TRUE);
     GX2SetDRCEnable(TRUE);
     frame_active_ = false;
@@ -224,6 +317,13 @@ void GX2Manager::Shutdown() noexcept {
     // GX2 must stop referencing surfaces and contexts before their storage is freed.
     ReleaseTarget(drc_);
     ReleaseTarget(tv_);
+    FreeUploads();
+    if (fetch_shader_.program != nullptr) MEMFreeToDefaultHeap(fetch_shader_.program);
+    if (vertex_shader_.program != nullptr) MEMFreeToDefaultHeap(vertex_shader_.program);
+    if (pixel_shader_.program != nullptr) MEMFreeToDefaultHeap(pixel_shader_.program);
+    fetch_shader_ = {};
+    vertex_shader_ = {};
+    pixel_shader_ = {};
     gx2_started_ = initialized_ = frame_active_ = presented_ = false;
 }
 

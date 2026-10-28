@@ -27,9 +27,10 @@ Explicit Thumb/mixed-mode ranges are supported as described in
 [Thumb support](thumb-support.md). Automatic mode inference, literal-pool
 identification, and reachable-code analysis require additional metadata/analysis.
 
-The mapped image is currently PC-side state. Emitting initialized data into the
-Wii U runtime and supporting guest mappings outside its current fixed window are
-separate runtime integration work; this loader alone does not enable full games.
+The CLI now embeds initialized text/rodata/data bytes and mapped zero-filled tails
+in emitted C++ and initializes runtime memory during dispatcher setup. Guest
+mappings outside the runtime's fixed FCRAM window still require a general mapper;
+this loader alone does not enable full games.
 
 Format references: [Luma3DS loader](https://github.com/LumaTeam/Luma3DS/blob/master/sysmodules/loader/source/loader.c)
 and [NCCH CodeSetInfo layout](https://github.com/azahar-emu/azahar/blob/master/src/core/file_sys/ncch_container.h).

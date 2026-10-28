@@ -8,6 +8,8 @@
 
 namespace arm11 {
 
+class BinaryLoader;
+
 class CppEmitter {
 public:
     // Writes WiiUMemory block functions and global InitDispatcher(WiiUEngine&).
@@ -15,7 +17,8 @@ public:
     // Instruction semantics are limited to those of the current translators.
     [[nodiscard]] bool EmitTranslatedFile(
         const std::string& output_filename,
-        const std::unordered_map<std::uint32_t, BasicBlock>& cfg) const;
+        const std::unordered_map<std::uint32_t, BasicBlock>& cfg,
+        const BinaryLoader* image = nullptr) const;
 };
 
 } // namespace arm11

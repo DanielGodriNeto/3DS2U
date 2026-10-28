@@ -5,6 +5,7 @@
 #include "cond_evaluator.hpp"
 #include "mem_translator.hpp"
 #include "thumb_decoder.hpp"
+#include "binary_loader.hpp"
 
 #include <algorithm>
 #include <exception>
@@ -51,7 +52,8 @@ void EmitInstruction(std::ostream& output, const std::string& translated,
 
 bool CppEmitter::EmitTranslatedFile(
     const std::string& output_filename,
-    const std::unordered_map<std::uint32_t, BasicBlock>& cfg) const {
+    const std::unordered_map<std::uint32_t, BasicBlock>& cfg,
+    const BinaryLoader* image) const {
     try {
         // Sort the unordered CFG so identical inputs yield identical source files.
         std::vector<std::uint32_t> addresses;
@@ -72,7 +74,25 @@ bool CppEmitter::EmitTranslatedFile(
 
         output << "#include \"arm11_types.hpp\"\n"
                   "#include \"wiiu_engine.hpp\"\n\n"
-                  "namespace arm11 {\n\n"
+                  "#include <span>\n\n";
+        if (image != nullptr) {
+            output << "namespace {\n";
+            std::size_t index = 0;
+            for (const auto& section : image->GetSections()) {
+                if (section.size != 0) {
+                    output << "constexpr std::uint8_t image_section_" << index << "[] = {\n    ";
+                    const auto bytes = image->GetCodeBuffer().subspan(section.file_offset, section.size);
+                    for (std::size_t i = 0; i < bytes.size(); ++i) {
+                        output << static_cast<unsigned>(bytes[i]) << ',';
+                        if ((i + 1) % 16 == 0) output << "\n    ";
+                    }
+                    output << "\n};\n";
+                }
+                ++index;
+            }
+            output << "} // namespace\n\n";
+        }
+        output << "namespace arm11 {\n\n"
                   "// Block bodies inherit the current translators' supported subset.\n"
                   "// B/BL/BX and LDM-to-PC return control to the runtime dispatcher.\n\n";
 
@@ -139,6 +159,21 @@ bool CppEmitter::EmitTranslatedFile(
                   "// Register translated block entry points with the Wii U engine.\n"
                   "void InitDispatcher(wiiu::WiiUEngine& engine) {\n"
                   "    (void)engine;\n";
+        if (image != nullptr) {
+            output << "    auto& memory = engine.GetMemory();\n";
+            std::size_t index = 0;
+            for (const auto& section : image->GetSections()) {
+                if (section.mapped_size != 0) {
+                    output << "    memory.ClearRange(" << section.virtual_address << "u, "
+                           << section.mapped_size << "u);\n";
+                }
+                if (section.size != 0) {
+                    output << "    memory.LoadImage(" << section.virtual_address
+                           << "u, std::span{image_section_" << index << "});\n";
+                }
+                ++index;
+            }
+        }
         for (const auto address : addresses) {
             output << "    engine.RegisterBlock(0x" << HexAddress(address)
                    << "u, &arm11::" << BlockName(cfg.at(address)) << ");\n";

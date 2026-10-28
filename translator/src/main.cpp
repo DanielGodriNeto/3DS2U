@@ -111,7 +111,7 @@ int main(int argc, char** argv) {
         arm11::CFGBuilder builder;
         const auto blocks = builder.BuildBlocks(instructions);
         arm11::CppEmitter emitter;
-        if (!emitter.EmitTranslatedFile(output_path, blocks)) {
+        if (!emitter.EmitTranslatedFile(output_path, blocks, &loader)) {
             std::cerr << "[3DS2U] Translation failed: cannot emit \"" << output_path << "\"\n";
             return 1;
         }

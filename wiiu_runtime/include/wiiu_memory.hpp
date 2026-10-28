@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace wiiu {
 
@@ -25,7 +26,16 @@ public:
     WiiUMemory& operator=(WiiUMemory&&) = delete;
 
     // The attached bridge must outlive all MMIO writes through this memory.
-    void SetPica200(Pica200& pica200) noexcept { pica200_ = &pica200; }
+    void SetPica200(Pica200& pica200) noexcept;
+    [[nodiscard]] const void* GetPointer(std::uint32_t addr, std::size_t size = 1) const;
+    void LoadImage(std::uint32_t addr, std::span<const std::uint8_t> bytes);
+    void ClearRange(std::uint32_t addr, std::size_t size);
+    // A draw command yields the cooperative CPU slice to presentation.
+    [[nodiscard]] bool ConsumeFrameRequest() noexcept {
+        const bool requested = frame_requested_;
+        frame_requested_ = false;
+        return requested;
+    }
 
     // All word/halfword accesses swap guest LE bytes to/from native PPC values.
     // Write32 intercepts PICA200 MMIO before FCRAM conversion/bounds checks.
@@ -40,6 +50,7 @@ private:
 
     std::byte* fcram_;
     Pica200* pica200_{};
+    bool frame_requested_{};
 };
 
 } // namespace wiiu

@@ -34,6 +34,7 @@ void WiiUEngine::Run(std::uint32_t entry_point) {
         // The block owns guest control flow; the dispatcher never increments PC.
         const BlockFunction block = it->second;
         block(cpu, memory);
+        if (memory.ConsumeFrameRequest()) break;
     }
 }
 

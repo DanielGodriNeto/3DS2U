@@ -76,12 +76,12 @@ int main(int argc, char** argv) {
 
         while (WHBProcIsRunning() && services.aptMainLoop()) {
             hid.ScanInput();
+            gx2.BeginFrame();
             engine.Run(cpu.r[15]);
             if (engine.IsHalted()) {
                 result = 1;
                 break;
             }
-            gx2.BeginFrame();
             gx2.EndFrame();
         }
     } catch (const std::exception& error) {
