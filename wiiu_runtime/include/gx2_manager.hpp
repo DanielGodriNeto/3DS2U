@@ -8,6 +8,8 @@
 #include <gx2/context.h>
 #include <gx2/display.h>
 #include <gx2/shaders.h>
+#include <gx2/texture.h>
+#include <gx2/sampler.h>
 #include <coreinit/memheap.h>
 
 #include <cstdint>
@@ -38,6 +40,10 @@ public:
     // Count is scalar floats (a multiple of four), maximum 96 vec4s.
     // Register mode: row-major modelview/projection matrix occupies c0-c3.
     void SetVertexUniforms(const float* uniform_data, std::uint32_t count);
+    // Input is tightly packed linear RGBA8; uploads are retained until DrawDone.
+    void BindTexture0(const std::uint8_t* pixel_data, std::uint32_t width,
+                      std::uint32_t height, GX2SurfaceFormat format);
+    void DisableTexture0() noexcept { texture_enabled_ = false; }
     void BindOutput(Output output); // Select TV or DRC for subsequent GX2 draws.
     void EndFrame();
     void Shutdown() noexcept;
@@ -62,6 +68,13 @@ private:
     GX2VertexShader vertex_shader_{};
     GX2PixelShader pixel_shader_{};
     GX2FetchShader fetch_shader_{};
+    GX2VertexShader textured_vertex_shader_{};
+    GX2PixelShader textured_pixel_shader_{};
+    GX2FetchShader textured_fetch_shader_{};
+    GX2Texture texture0_{};
+    GX2Sampler sampler0_{};
+    GX2SamplerVar sampler_var_{"texSampler", GX2_SAMPLER_VAR_TYPE_SAMPLER_2D, 0};
+    bool texture_enabled_{};
     std::array<float, 384> vertex_uniforms_ = [] {
         std::array<float, 384> values{};
         for (unsigned i = 0; i < 4; ++i) values[i * 5] = 1.0f;

@@ -78,25 +78,50 @@ bool GX2Manager::InitializeShaders() {
     pixel_shader_.regs.cb_shader_control = 1;
     pixel_shader_.regs.db_shader_control = 0x10u;
 
-    const GX2AttribStream attributes[2]{
+    textured_vertex_shader_ = vertex_shader_;
+    textured_pixel_shader_ = pixel_shader_;
+    textured_vertex_shader_.program = program(shaders::textured_vertex);
+    textured_pixel_shader_.program = program(shaders::textured_pixel);
+    if (textured_vertex_shader_.program == nullptr || textured_pixel_shader_.program == nullptr) return false;
+    textured_vertex_shader_.regs.sq_pgm_resources_vs = 5u | (1u << 8);
+    textured_vertex_shader_.regs.sq_vtx_semantic_clear = 0xFFFFFFF8u;
+    textured_vertex_shader_.regs.num_sq_vtx_semantic = 3;
+    textured_vertex_shader_.regs.sq_vtx_semantic[2] = 2;
+    textured_vertex_shader_.regs.spi_vs_out_id[0] = 0xFFFF0100u;
+    textured_vertex_shader_.regs.spi_vs_out_config = 2;
+    textured_pixel_shader_.regs.sq_pgm_resources_ps = 3;
+    textured_pixel_shader_.regs.spi_ps_in_control_0 = 2u | (1u << 28);
+    textured_pixel_shader_.regs.num_spi_ps_input_cntl = 2;
+    textured_pixel_shader_.regs.spi_ps_input_cntls[1] = 0x101u;
+    textured_pixel_shader_.samplerVarCount = 1;
+    textured_pixel_shader_.samplerVars = &sampler_var_;
+
+    const GX2AttribStream attributes[3]{
         {0, 0, 0, GX2_ATTRIB_FORMAT_FLOAT_32_32_32, GX2_ATTRIB_INDEX_PER_VERTEX,
          0, GX2_SEL_MASK(0, 1, 2, 5), GX2_ENDIAN_SWAP_NONE},
         {1, 0, 12, GX2_ATTRIB_FORMAT_FLOAT_32_32_32_32, GX2_ATTRIB_INDEX_PER_VERTEX,
          0, GX2_SEL_MASK(0, 1, 2, 3), GX2_ENDIAN_SWAP_NONE},
+        {2, 0, 28, GX2_ATTRIB_FORMAT_FLOAT_32_32, GX2_ATTRIB_INDEX_PER_VERTEX,
+         0, GX2_SEL_MASK(0, 1, 4, 5), GX2_ENDIAN_SWAP_NONE},
     };
-    const auto size = GX2CalcFetchShaderSizeEx(2, GX2_FETCH_SHADER_TESSELLATION_NONE,
-                                             GX2_TESSELLATION_MODE_DISCRETE);
-    auto* fetch = static_cast<std::uint8_t*>(Allocate(size, GX2_SHADER_PROGRAM_ALIGNMENT));
-    if (fetch == nullptr) return false;
-    GX2InitFetchShaderEx(&fetch_shader_, fetch, 2, attributes, GX2_FETCH_SHADER_TESSELLATION_NONE,
-                         GX2_TESSELLATION_MODE_DISCRETE);
-    GX2Invalidate(GX2_INVALIDATE_MODE_CPU_SHADER, fetch, size);
-    return true;
+    const auto init_fetch = [&](GX2FetchShader& shader, std::uint32_t count) {
+        const auto size = GX2CalcFetchShaderSizeEx(count, GX2_FETCH_SHADER_TESSELLATION_NONE,
+                                                 GX2_TESSELLATION_MODE_DISCRETE);
+        auto* fetch = static_cast<std::uint8_t*>(Allocate(size, GX2_SHADER_PROGRAM_ALIGNMENT));
+        if (fetch == nullptr) return false;
+        GX2InitFetchShaderEx(&shader, fetch, count, attributes, GX2_FETCH_SHADER_TESSELLATION_NONE,
+                             GX2_TESSELLATION_MODE_DISCRETE);
+        GX2Invalidate(GX2_INVALIDATE_MODE_CPU_SHADER, fetch, size);
+        return true;
+    };
+    return init_fetch(fetch_shader_, 2) && init_fetch(textured_fetch_shader_, 3);
 }
 
 void GX2Manager::FreeUploads() noexcept {
     for (auto* upload : frame_uploads_) MEMFreeToDefaultHeap(upload);
     frame_uploads_.clear();
+    texture0_ = {};
+    texture_enabled_ = false;
 }
 
 void GX2Manager::DrawTriangles(const void* vtx_data, std::uint32_t count, std::uint32_t stride) {
@@ -104,7 +129,7 @@ void GX2Manager::DrawTriangles(const void* vtx_data, std::uint32_t count, std::u
     if (!initialized_ || !frame_active_) throw std::logic_error("Triangle draw requires an active GX2 frame");
     const std::uint64_t size = std::uint64_t{count} * stride;
     if (vtx_data == nullptr || count % 3 != 0 || stride < 28 || stride > 2044 ||
-        (stride & 3u) != 0 || size > 128u * 1024u * 1024u) {
+        (stride & 3u) != 0 || (texture_enabled_ && stride < 36) || size > 128u * 1024u * 1024u) {
         throw std::invalid_argument("Invalid GX2 MVP vertex buffer");
     }
     auto* upload = Allocate(static_cast<std::uint32_t>(size), GX2_VERTEX_BUFFER_ALIGNMENT);
@@ -117,9 +142,13 @@ void GX2Manager::DrawTriangles(const void* vtx_data, std::uint32_t count, std::u
     for (const auto output : {Output::TV, Output::DRC}) {
         BindOutput(output);
         GX2SetShaderMode(GX2_SHADER_MODE_UNIFORM_REGISTER);
-        GX2SetFetchShader(&fetch_shader_);
-        GX2SetVertexShader(&vertex_shader_);
-        GX2SetPixelShader(&pixel_shader_);
+        GX2SetFetchShader(texture_enabled_ ? &textured_fetch_shader_ : &fetch_shader_);
+        GX2SetVertexShader(texture_enabled_ ? &textured_vertex_shader_ : &vertex_shader_);
+        GX2SetPixelShader(texture_enabled_ ? &textured_pixel_shader_ : &pixel_shader_);
+        if (texture_enabled_) {
+            GX2SetPixelTexture(&texture0_, 0);
+            GX2SetPixelSampler(&sampler0_, 0);
+        }
         // Each output has a separate GX2 context; restore constants after binding it.
         GX2SetVertexUniformReg(0, static_cast<std::uint32_t>(vertex_uniforms_.size()), vertex_uniforms_.data());
         GX2SetCullOnlyControl(GX2_FRONT_FACE_CCW, FALSE, FALSE);
@@ -141,6 +170,43 @@ void GX2Manager::SetVertexUniforms(const float* data, std::uint32_t count) {
     std::copy_n(data, count, vertex_uniforms_.begin());
     // Native float values: GX2 emits PPC numeric constants into the command stream.
     GX2SetVertexUniformReg(0, count, vertex_uniforms_.data());
+}
+
+void GX2Manager::BindTexture0(const std::uint8_t* pixels, std::uint32_t width,
+                              std::uint32_t height, GX2SurfaceFormat format) {
+    if (!initialized_ || !frame_active_) throw std::logic_error("Texture binding requires an active GX2 frame");
+    if (pixels == nullptr || width == 0 || height == 0 || width > 1024 || height > 1024 ||
+        format != GX2_SURFACE_FORMAT_UNORM_R8_G8_B8_A8)
+        throw std::invalid_argument("Texture upload requires linear RGBA8, maximum 1024x1024");
+    GX2Texture texture{};
+    auto& surface = texture.surface;
+    surface.dim = GX2_SURFACE_DIM_TEXTURE_2D;
+    surface.width = width; surface.height = height; surface.depth = 1;
+    surface.mipLevels = 1; surface.format = format; surface.aa = GX2_AA_MODE1X;
+    surface.use = GX2_SURFACE_USE_TEXTURE;
+    surface.tileMode = GX2_TILE_MODE_LINEAR_ALIGNED;
+    GX2CalcSurfaceSizeAndAlignment(&surface);
+    const auto used_bytes = std::uint64_t{surface.pitch} * (height - 1u) * 4u + std::uint64_t{width} * 4u;
+    if (surface.pitch < width || used_bytes > surface.imageSize)
+        throw std::runtime_error("GX2 texture surface cannot hold the linear rows");
+    surface.image = Allocate(surface.imageSize, surface.alignment);
+    if (surface.image == nullptr) throw std::bad_alloc{};
+    try { frame_uploads_.push_back(surface.image); }
+    catch (...) { MEMFreeToDefaultHeap(surface.image); throw; }
+    auto* destination = static_cast<std::uint8_t*>(surface.image);
+    for (std::uint32_t y = 0; y < height; ++y)
+        std::memcpy(destination + static_cast<std::size_t>(y) * surface.pitch * 4u,
+                    pixels + static_cast<std::size_t>(y) * width * 4u, static_cast<std::size_t>(width) * 4u);
+    texture.viewNumMips = texture.viewNumSlices = 1;
+    texture.compMap = GX2_COMP_MAP(0, 1, 2, 3);
+    GX2InitTextureRegs(&texture);
+    GX2Invalidate(GX2_INVALIDATE_MODE_CPU_TEXTURE, surface.image, surface.imageSize);
+    GX2InitSampler(&sampler0_, GX2_TEX_CLAMP_MODE_CLAMP, GX2_TEX_XY_FILTER_MODE_POINT);
+    GX2InitSamplerLOD(&sampler0_, 0.0f, 0.0f, 0.0f);
+    texture0_ = texture;
+    texture_enabled_ = true;
+    GX2SetPixelTexture(&texture0_, 0);
+    GX2SetPixelSampler(&sampler0_, 0);
 }
 
 GX2Manager::~GX2Manager() noexcept {
@@ -336,9 +402,15 @@ void GX2Manager::Shutdown() noexcept {
     if (fetch_shader_.program != nullptr) MEMFreeToDefaultHeap(fetch_shader_.program);
     if (vertex_shader_.program != nullptr) MEMFreeToDefaultHeap(vertex_shader_.program);
     if (pixel_shader_.program != nullptr) MEMFreeToDefaultHeap(pixel_shader_.program);
+    if (textured_fetch_shader_.program != nullptr) MEMFreeToDefaultHeap(textured_fetch_shader_.program);
+    if (textured_vertex_shader_.program != nullptr) MEMFreeToDefaultHeap(textured_vertex_shader_.program);
+    if (textured_pixel_shader_.program != nullptr) MEMFreeToDefaultHeap(textured_pixel_shader_.program);
     fetch_shader_ = {};
     vertex_shader_ = {};
     pixel_shader_ = {};
+    textured_fetch_shader_ = {};
+    textured_vertex_shader_ = {};
+    textured_pixel_shader_ = {};
     gx2_started_ = initialized_ = frame_active_ = presented_ = false;
 }
 

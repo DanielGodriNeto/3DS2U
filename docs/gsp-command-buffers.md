@@ -87,7 +87,7 @@ command-buffer mutation support. Nested command lists are rejected.
 From an MSVC x64 developer command prompt at the repository root:
 
 ```bat
-cl /nologo /std:c++20 /EHsc /W4 /WX /I wiiu_runtime\tests\stubs /I wiiu_runtime\include wiiu_runtime\tests\gsp_gpu_tests.cpp wiiu_runtime\src\gsp_gpu.cpp wiiu_runtime\src\pica200.cpp /Fo:build\ /Fe:build\gsp_gpu_tests.exe
+cl /nologo /std:c++20 /EHsc /W4 /WX /I wiiu_runtime\tests\stubs /I wiiu_runtime\include wiiu_runtime\tests\gsp_gpu_tests.cpp wiiu_runtime\src\gsp_gpu.cpp wiiu_runtime\src\pica200.cpp wiiu_runtime\src\texture_decoder.cpp /Fo:build\ /Fe:build\gsp_gpu_tests.exe
 build\gsp_gpu_tests.exe
 ```
 

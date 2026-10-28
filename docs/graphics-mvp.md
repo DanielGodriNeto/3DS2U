@@ -18,6 +18,10 @@ Extra stride padding is allowed, up to 2044 bytes. Pointers must be
 word aligned. The complete `count * stride` range is checked against FCRAM before
 it is exposed to GX2.
 
+When texture unit 0 is enabled, append float2 UV at offset 28 (stride at least
+36 bytes). The textured shader multiplies vertex color by a sampled texel;
+see [textures](textures.md) for the register and pixel format contracts.
+
 The GX2 manager copies guest LE bytes into aligned per-frame uploads and uses
 `GX2_ENDIAN_SWAP_NONE` for both attributes. Uploads stay alive through
 `GX2DrawDone`. Minimal embedded vertex/pixel programs export position and pass

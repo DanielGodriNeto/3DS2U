@@ -52,11 +52,28 @@ const void* Pica200::ValidateDraw(const DrawRequest& request) const {
     const std::uint64_t bytes = std::uint64_t{request.count} * request.stride;
     if (bytes > std::numeric_limits<std::uint32_t>::max())
         throw std::out_of_range("PICA200 vertex buffer size overflows");
+    if (request.texture.address != 0) {
+        if (request.stride < 36) throw std::invalid_argument("Textured vertices require float2 UV at offset 28");
+        const auto size = TextureSourceSize(request.texture.dimensions & 0xFFFFu,
+                                            request.texture.dimensions >> 16,
+                                            static_cast<TextureFormat>(request.texture.format));
+        (void)memory_->GetPointer(request.texture.address, size);
+    }
     return memory_->GetPointer(request.address, static_cast<std::size_t>(bytes));
 }
 
 void Pica200::SubmitDraw(const DrawRequest& request) {
     const auto* vertices = ValidateDraw(request);
+    if (request.texture.address != 0) {
+        const auto width = request.texture.dimensions & 0xFFFFu;
+        const auto height = request.texture.dimensions >> 16;
+        const auto format = static_cast<TextureFormat>(request.texture.format);
+        const auto source_size = TextureSourceSize(width, height, format);
+        const auto* source = static_cast<const std::uint8_t*>(memory_->GetPointer(request.texture.address, source_size));
+        std::vector<std::uint8_t> rgba(static_cast<std::size_t>(width) * height * 4u);
+        Deswizzle3DSTexture(std::span{source, source_size}, std::span{rgba}, width, height, format);
+        gx2_manager_.BindTexture0(rgba.data(), width, height, GX2_SURFACE_FORMAT_UNORM_R8_G8_B8_A8);
+    } else gx2_manager_.DisableTexture0();
     gx2_manager_.SetVertexUniforms(request.uniforms.data(), kUniformFloatCount);
     gx2_manager_.DrawTriangles(vertices, request.count, request.stride);
 }
@@ -86,10 +103,13 @@ void Pica200::WriteMMIO(std::uint32_t address, std::uint32_t value, std::uint8_t
     case kVertexBufferRegister: vbo_addr_ = value; break;
     case kVertexStrideRegister: vbo_stride_ = value; break;
     case kVertexCountRegister: vertex_count_ = value; break;
+    case kTextureAddress: texture0_.address = value; break;
+    case kTextureDimensions: texture0_.dimensions = value; break;
+    case kTextureFormat: texture0_.format = value; break;
     case kDrawRegister: {
         if ((byte_mask & 1u) == 0) return;
         if (value != 1 || vertex_count_ == 0) return;
-        const DrawRequest request{vbo_addr_, vbo_stride_, vertex_count_, GetVertexUniforms()};
+        const DrawRequest request{vbo_addr_, vbo_stride_, vertex_count_, GetVertexUniforms(), texture0_};
         if (batching_) pending_draws_.push_back(request);
         else SubmitDraw(request);
         break;

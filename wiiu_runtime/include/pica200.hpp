@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <vector>
 #include <array>
+#include "texture_decoder.hpp"
 
 namespace wiiu {
 class WiiUMemory;
@@ -25,6 +26,9 @@ public:
     static constexpr std::uint32_t kUniformFloatCount = 96u * 4u;
     static constexpr std::uint32_t kUniformEnd = kUniformBase + kUniformFloatCount * 4u;
     using VertexUniforms = std::array<float, kUniformFloatCount>;
+    static constexpr std::uint32_t kTextureAddress = 0x1EF00B00u;
+    static constexpr std::uint32_t kTextureDimensions = 0x1EF00B04u;
+    static constexpr std::uint32_t kTextureFormat = 0x1EF00B0Cu;
 
     // The graphics manager must outlive this non-owning bridge.
     explicit Pica200(gx2::GX2Manager& manager) noexcept : gx2_manager_(manager) {}
@@ -40,9 +44,11 @@ public:
     void CancelCommandList() noexcept;
 
 private:
+    struct TextureState { std::uint32_t address{}, dimensions{}, format{}; };
     struct DrawRequest {
         std::uint32_t address, stride, count;
         VertexUniforms uniforms;
+        TextureState texture;
     };
     [[nodiscard]] const void* ValidateDraw(const DrawRequest& request) const;
     void SubmitDraw(const DrawRequest& request);
@@ -54,6 +60,7 @@ private:
     std::unordered_map<std::uint32_t, std::uint32_t> registers_{{kVertexStrideRegister, 28u}};
     std::vector<DrawRequest> pending_draws_;
     bool batching_{};
+    TextureState texture0_{};
     // MVP direct scalar register bank; first four vec4s form a row-major mat4.
     std::array<std::uint32_t, kUniformFloatCount> uniforms24_ = [] {
         std::array<std::uint32_t, kUniformFloatCount> values{};
