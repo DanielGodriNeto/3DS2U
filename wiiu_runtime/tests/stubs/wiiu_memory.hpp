@@ -13,6 +13,12 @@ public:
     WiiUMemory() : bytes_(0x10000) {}
     explicit WiiUMemory(Pica200& bridge) : WiiUMemory() { SetPica200(bridge); }
     void SetPica200(Pica200& bridge) { pica_ = &bridge; bridge.AttachMemory(*this); }
+    void RequestFrame() noexcept { frame_requested_ = true; }
+    bool ConsumeFrameRequest() noexcept {
+        const bool result = frame_requested_;
+        frame_requested_ = false;
+        return result;
+    }
     const void* GetPointer(std::uint32_t addr, std::size_t size = 1) const {
         return bytes_.data() + Offset(addr, size);
     }
@@ -49,5 +55,6 @@ private:
     }
     std::vector<std::uint8_t> bytes_;
     Pica200* pica_{};
+    bool frame_requested_{};
 };
 } // namespace wiiu

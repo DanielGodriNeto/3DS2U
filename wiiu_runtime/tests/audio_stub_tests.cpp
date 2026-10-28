@@ -42,7 +42,7 @@ void OSReport(const char* format, ...) {
     Check(length >= 0 && static_cast<std::size_t>(length) < sizeof(message));
     logs.emplace_back(message);
 }
-void wiiu::Pica200::WriteMMIO(std::uint32_t, std::uint32_t) {
+void wiiu::Pica200::WriteMMIO(std::uint32_t, std::uint32_t, std::uint8_t) {
     throw std::logic_error("Audio access reached graphics bridge");
 }
 std::int32_t VPADRead(VPADChan, VPADStatus*, std::uint32_t, VPADReadError* error) {

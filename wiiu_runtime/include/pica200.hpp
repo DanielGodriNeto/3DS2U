@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <unordered_map>
+#include <vector>
 
 namespace wiiu {
 class WiiUMemory;
@@ -24,14 +26,25 @@ public:
     void AttachMemory(WiiUMemory& memory) noexcept { memory_ = &memory; }
 
     // Values are guest register integers, before any FCRAM byte swapping.
-    void WriteMMIO(std::uint32_t address, std::uint32_t value);
+    void WriteMMIO(std::uint32_t address, std::uint32_t value, std::uint8_t byte_mask = 0xF);
+    [[nodiscard]] std::uint32_t GetRegisterValue(std::uint32_t address) const noexcept;
+    void BeginCommandList(WiiUMemory& memory);
+    // Validates queued geometry, then submits snapshots in guest draw order.
+    [[nodiscard]] bool EndCommandList();
+    void CancelCommandList() noexcept;
 
 private:
+    struct DrawRequest { std::uint32_t address, stride, count; };
+    [[nodiscard]] const void* ValidateDraw(const DrawRequest& request) const;
+    void SubmitDraw(const DrawRequest& request);
     gx2::GX2Manager& gx2_manager_;
     WiiUMemory* memory_{};
     std::uint32_t vbo_addr_{};
     std::uint32_t vbo_stride_{28}; // MVP: LE float3 position followed by LE float4 color.
     std::uint32_t vertex_count_{};
+    std::unordered_map<std::uint32_t, std::uint32_t> registers_{{kVertexStrideRegister, 28u}};
+    std::vector<DrawRequest> pending_draws_;
+    bool batching_{};
 };
 
 } // namespace wiiu

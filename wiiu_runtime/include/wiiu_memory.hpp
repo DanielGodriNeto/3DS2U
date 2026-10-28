@@ -39,6 +39,7 @@ public:
         frame_requested_ = false;
         return requested;
     }
+    void RequestFrame() noexcept { frame_requested_ = true; }
 
     // FCRAM word/halfword accesses swap guest LE bytes to/from native PPC values.
     // HID/audio reads and audio/PICA200 writes use numeric MMIO values directly.
