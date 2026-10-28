@@ -148,6 +148,10 @@ void GX2Manager::BindOutput(Output output) {
     GX2SetScissor(0, 0, target.color.surface.width, target.color.surface.height);
 }
 
+void GX2Manager::SetClearColor(float r, float g, float b, float a) noexcept {
+    clear_color_ = {r, g, b, a};
+}
+
 void GX2Manager::BeginFrame() {
     if (!initialized_ || frame_active_) {
         return;
@@ -164,7 +168,8 @@ void GX2Manager::BeginFrame() {
                       target.color.surface.image, target.color.surface.imageSize);
         GX2Invalidate(GX2_INVALIDATE_MODE_DEPTH_BUFFER,
                       target.depth.surface.image, target.depth.surface.imageSize);
-        GX2ClearColor(&target.color, 0.0f, 0.0f, 0.0f, 1.0f);
+        GX2ClearColor(&target.color, clear_color_[0], clear_color_[1],
+                      clear_color_[2], clear_color_[3]);
         GX2ClearDepthStencilEx(&target.depth, 1.0f, 0, GX2_CLEAR_FLAGS_DEPTH);
         // GX2 clear operations may alter registers in the active context.
         GX2SetContextState(target.context);

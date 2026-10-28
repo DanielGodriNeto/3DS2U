@@ -10,6 +10,7 @@
 #include <coreinit/memheap.h>
 
 #include <cstdint>
+#include <array>
 
 namespace wiiu::gx2 {
 
@@ -28,6 +29,7 @@ public:
 
     [[nodiscard]] bool Initialize();
     void BeginFrame(); // Clears both outputs and selects the TV render target.
+    void SetClearColor(float r, float g, float b, float a) noexcept;
     void BindOutput(Output output); // Select TV or DRC for subsequent GX2 draws.
     void EndFrame();
     void Shutdown() noexcept;
@@ -46,6 +48,7 @@ private:
 
     Target tv_{};
     Target drc_{};
+    std::array<float, 4> clear_color_{0.0f, 0.0f, 0.0f, 1.0f};
     bool gx2_started_{};
     bool initialized_{};
     bool frame_active_{};

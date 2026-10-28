@@ -1,4 +1,5 @@
 #include "wiiu_memory.hpp"
+#include "pica200.hpp"
 
 #include <coreinit/memdefaultheap.h>
 
@@ -48,6 +49,14 @@ std::uint32_t WiiUMemory::Read32(std::uint32_t addr) const {
 }
 
 void WiiUMemory::Write32(std::uint32_t addr, std::uint32_t val) {
+    if (addr >= Pica200::kMMIOBase && addr < Pica200::kMMIOEnd) {
+        if (pica200_ == nullptr) {
+            throw std::logic_error("PICA200 MMIO bridge is not attached");
+        }
+        // The MMIO bridge consumes numeric register values, not swapped bytes.
+        pica200_->WriteMMIO(addr, val);
+        return;
+    }
     const auto offset = Offset(addr, sizeof(val));
     const auto little_endian = __builtin_bswap32(val);
     std::memcpy(fcram_ + offset, &little_endian, sizeof(little_endian));

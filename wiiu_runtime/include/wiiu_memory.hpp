@@ -5,6 +5,8 @@
 
 namespace wiiu {
 
+class Pica200;
+
 // Owns a page-aligned host buffer for the guest window [0x08000000, 0x10000000).
 // This is a software address mapping; it does not map guest addresses into PPC VA.
 class WiiUMemory {
@@ -22,8 +24,12 @@ public:
     WiiUMemory(WiiUMemory&&) = delete;
     WiiUMemory& operator=(WiiUMemory&&) = delete;
 
+    // The attached bridge must outlive all MMIO writes through this memory.
+    void SetPica200(Pica200& pica200) noexcept { pica200_ = &pica200; }
+
     // All word/halfword accesses swap guest LE bytes to/from native PPC values.
-    // Out-of-window accesses throw std::out_of_range before touching host memory.
+    // Write32 intercepts PICA200 MMIO before FCRAM conversion/bounds checks.
+    // Other out-of-window accesses throw std::out_of_range.
     [[nodiscard]] std::uint32_t Read32(std::uint32_t addr) const;
     void Write32(std::uint32_t addr, std::uint32_t val);
     [[nodiscard]] std::uint16_t Read16(std::uint32_t addr) const;
@@ -33,6 +39,7 @@ private:
     [[nodiscard]] static std::size_t Offset(std::uint32_t addr, std::size_t width);
 
     std::byte* fcram_;
+    Pica200* pica200_{};
 };
 
 } // namespace wiiu

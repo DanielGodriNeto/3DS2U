@@ -1,6 +1,9 @@
 #include "alu_translator.hpp"
 
 #include <cstdint>
+#include <bit>
+#include <iomanip>
+#include <sstream>
 
 namespace arm11 {
 
@@ -18,8 +21,11 @@ std::string ALUTranslator::TranslateInstruction(const Instruction& inst) const {
     const auto rd = (raw >> 12) & 0xFu;
     const auto operand2 = raw & 0xFFFu;
     const auto rm = operand2 & 0xFu;
+    const bool immediate = ((raw >> 25) & 1u) != 0;
+    const auto rotation = static_cast<int>(((raw >> 8) & 0xFu) * 2u);
+    const auto immediate_value = std::rotr(raw & 0xFFu, rotation);
 
-    // Operand2 is deliberately treated as an unshifted register at this stage.
+    // Register Operand2 remains unshifted; immediate Operand2 uses ARM ROR encoding.
     const auto reg = [](std::uint32_t index) {
         return "cpu.r[" + std::to_string(index) + "]";
     };
@@ -28,13 +34,16 @@ std::string ALUTranslator::TranslateInstruction(const Instruction& inst) const {
     const bool sub = opcode == 0b0010u;
     const bool cmp = opcode == 0b1010u;
     const bool mov = opcode == 0b1101u;
-    if (!add && !sub && !cmp && !mov) {
+    const bool orr = opcode == 0b1100u;
+    if (!add && !sub && !cmp && !mov && !orr) {
         return "// Unhandled Instruction";
     }
 
     const auto lhs = reg(rn);
-    const auto rhs = reg(rm);
-    const auto expression = mov ? rhs : lhs + (add ? " + " : " - ") + rhs;
+    std::ostringstream literal;
+    literal << "0x" << std::hex << std::uppercase << immediate_value << 'u';
+    const auto rhs = immediate ? literal.str() : reg(rm);
+    const auto expression = mov ? rhs : lhs + (add ? " + " : orr ? " | " : " - ") + rhs;
     if (!set_flags && !cmp) {
         return reg(rd) + " = " + expression + ";";
     }
@@ -52,8 +61,12 @@ std::string ALUTranslator::TranslateInstruction(const Instruction& inst) const {
         code += "    cpu.cpsr.C = (" + lhs + " >= " + rhs + ");\n"
                 "    cpu.cpsr.V = (((" + lhs + " ^ " + rhs + ") & (" + lhs +
                 " ^ temp)) >> 31) != 0;\n";
+    } else if (immediate && rotation != 0) {
+        // Logical modified immediates carry out the rotated immediate's top bit.
+        code += std::string{"    cpu.cpsr.C = "} +
+                ((immediate_value & 0x80000000u) != 0 ? "true;\n" : "false;\n");
     }
-    // MOVS preserves C until shifter carry is implemented, and always preserves V.
+    // Logical operations preserve V; unshifted registers/zero rotations preserve C.
     // Commit Rd last so flag formulas see original Rn/Rm even when Rd aliases them.
     if (!cmp) {
         code += "    " + reg(rd) + " = temp;\n";
