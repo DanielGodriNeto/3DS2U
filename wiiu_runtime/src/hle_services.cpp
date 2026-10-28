@@ -13,6 +13,37 @@
 
 namespace wiiu::hle {
 
+HLEServiceManager::HLEServiceManager() {
+    service_ports_.emplace("fs:USER", ServicePort::FSUser);
+    service_ports_.emplace("aoc:u", ServicePort::AocUser);
+}
+
+std::uint32_t HLEServiceManager::OpenServicePort(std::string_view name, std::uint32_t& handle) {
+    handle = 0;
+    if (name.empty() || name.size() > 8) return kFSInvalidArgument;
+    try {
+        const auto port = service_ports_.find(std::string(name));
+        if (port == service_ports_.end()) return kFSNotFound;
+        if (service_sessions_.size() >= 64 || next_service_handle_ >= 0x40000000u) return kFSOutOfResources;
+        const auto id = next_service_handle_++;
+        service_sessions_.emplace(id, port->second);
+        handle = id;
+        return 0;
+    } catch (const std::bad_alloc&) { return kFSOutOfResources; }
+}
+
+std::uint32_t HLEServiceManager::CloseServicePort(std::uint32_t handle) {
+    return service_sessions_.erase(handle) != 0 ? 0u : kFSInvalidHandle;
+}
+
+std::uint32_t HLEServiceManager::HandleServiceIPC(WiiUMemory& memory, std::uint32_t handle,
+                                                std::uint32_t address) {
+    const auto session = service_sessions_.find(handle);
+    if (session == service_sessions_.end()) return kFSInvalidHandle;
+    if (session->second == ServicePort::AocUser) return aoc_.HandleIPC(memory, address);
+    return HandleFSUserIPC(memory, address);
+}
+
 std::span<const std::uint8_t> HLEServiceManager::RegisteredROHashes(std::uint32_t address) const noexcept {
     const auto it = ro_hashes_.find(address);
     return it == ro_hashes_.end() ? std::span<const std::uint8_t>{} : it->second;
@@ -523,6 +554,7 @@ std::uint32_t HLEServiceManager::aptExit() {
 }
 
 std::uint32_t HLEServiceManager::srvExit() {
+    service_sessions_.clear();
     OSReport("[3DS2U HLE] srvExit: stub success\n");
     return 0;
 }

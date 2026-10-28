@@ -6,6 +6,8 @@
 #include "romfs_reader.hpp"
 #include "cro_loader.hpp"
 #include "save_manager.hpp"
+#include "aoc_manager.hpp"
+#include <string_view>
 
 namespace wiiu { class WiiUMemory; class GSPGPU; class AudioDriver; }
 
@@ -14,6 +16,13 @@ namespace wiiu::hle {
 // Partial HLE services; FS routing below is explicit, not a general SVC layer.
 class HLEServiceManager {
 public:
+    HLEServiceManager();
+    // Explicit service sessions; the kernel's guest SendSyncRequest bridge is separate.
+    [[nodiscard]] std::uint32_t OpenServicePort(std::string_view name, std::uint32_t& handle);
+    [[nodiscard]] std::uint32_t CloseServicePort(std::uint32_t handle);
+    [[nodiscard]] std::uint32_t HandleServiceIPC(WiiUMemory& memory, std::uint32_t handle,
+                                               std::uint32_t command_address);
+    [[nodiscard]] AocManager& GetAocManager() noexcept { return aoc_; }
     // Explicit GX submission helper; the attached GPU service must outlive submissions.
     void AttachGSPGPU(GSPGPU& service) noexcept { gsp_gpu_ = &service; }
     [[nodiscard]] std::uint32_t GSPGPU_SubmitGXCommand(WiiUMemory& memory, std::uint32_t packet_address);
@@ -97,6 +106,11 @@ public:
     [[nodiscard]] CROLoader& GetCROLoader() noexcept { return cro_loader_; }
     [[nodiscard]] std::span<const std::uint8_t> RegisteredROHashes(std::uint32_t address) const noexcept;
 private:
+    enum class ServicePort { FSUser, AocUser };
+    AocManager aoc_;
+    std::unordered_map<std::string, ServicePort> service_ports_;
+    std::unordered_map<std::uint32_t, ServicePort> service_sessions_;
+    std::uint32_t next_service_handle_ = 0x30000000u;
     struct SaveArchive { std::uint32_t id; std::uint64_t extdata; };
     struct SaveFile { SaveFileHandle handle; std::uint32_t archive; };
     SaveManager* saves_{};

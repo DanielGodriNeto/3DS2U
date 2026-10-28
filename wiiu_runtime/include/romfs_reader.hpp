@@ -15,15 +15,20 @@ private:
     friend class RomFSReader;
     const RomFSReader* owner_{};
     std::uint64_t generation_{}, offset_{}, size_{};
+    std::size_t layer_{};
 };
 
-// Owns a copy of an unencrypted Level-3 RomFS image, with offsets relative to it.
+// Owns validated Level-3 images. Later mounts override files in earlier layers.
 class RomFSReader {
 public:
     RomFSReader() = default;
     RomFSReader(const RomFSReader&) = delete;
     RomFSReader& operator=(const RomFSReader&) = delete;
     [[nodiscard]] bool Mount(std::span<const std::uint8_t> image, std::size_t level3_offset = 0);
+    [[nodiscard]] bool MountLayer(std::span<const std::uint8_t> image, std::size_t level3_offset = 0);
+    [[nodiscard]] bool MountFile(const std::string& filename, std::size_t level3_offset = 0);
+    [[nodiscard]] bool MountLayerFile(const std::string& filename, std::size_t level3_offset = 0);
+    [[nodiscard]] std::size_t GetMountCount() const noexcept { return layers_.size(); }
     void Unmount() noexcept;
     [[nodiscard]] bool OpenFile(const std::string& path, RomFSFileHandle& out_handle) const;
     [[nodiscard]] bool OpenFile(std::u16string_view path, RomFSFileHandle& out_handle) const;
@@ -40,10 +45,15 @@ private:
         std::uint64_t offset, size;
         std::u16string name;
     };
-    std::vector<std::uint8_t> image_;
-    std::unordered_map<std::uint32_t, Directory> directories_;
-    std::unordered_map<std::uint32_t, File> files_;
-    std::uint32_t data_offset_{};
+    struct Layer {
+        std::vector<std::uint8_t> image;
+        std::unordered_map<std::uint32_t, Directory> directories;
+        std::unordered_map<std::uint32_t, File> files;
+        std::uint32_t data_offset{};
+    };
+    [[nodiscard]] bool OpenInLayer(std::u16string_view path, std::size_t layer,
+                                   RomFSFileHandle& handle) const;
+    std::vector<Layer> layers_;
     std::uint64_t generation_{};
     std::string error_;
 };

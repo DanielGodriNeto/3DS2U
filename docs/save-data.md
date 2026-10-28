@@ -71,7 +71,7 @@ Run from an x64 MSVC developer prompt at the repository root:
 
 ```bat
 if not exist build mkdir build
-cl /nologo /std:c++20 /EHsc /W4 /WX /I wiiu_runtime\include /I wiiu_runtime\tests\audio_platform /I wiiu_runtime\tests\stubs wiiu_runtime\tests\save_tests.cpp wiiu_runtime\src\save_manager.cpp wiiu_runtime\src\hle_services.cpp wiiu_runtime\src\romfs_reader.cpp wiiu_runtime\src\audio_driver.cpp wiiu_runtime\src\cro_loader.cpp wiiu_runtime\src\wiiu_memory.cpp wiiu_runtime\src\hid_manager.cpp /Fo:build\ /Fe:build\save_tests.exe
+cl /nologo /std:c++20 /EHsc /W4 /WX /I wiiu_runtime\include /I wiiu_runtime\tests\audio_platform /I wiiu_runtime\tests\stubs wiiu_runtime\tests\save_tests.cpp wiiu_runtime\src\save_manager.cpp wiiu_runtime\src\hle_services.cpp wiiu_runtime\src\aoc_manager.cpp wiiu_runtime\src\romfs_reader.cpp wiiu_runtime\src\audio_driver.cpp wiiu_runtime\src\cro_loader.cpp wiiu_runtime\src\wiiu_memory.cpp wiiu_runtime\src\hid_manager.cpp /Fo:build\ /Fe:build\save_tests.exe
 build\save_tests.exe
 ```
 

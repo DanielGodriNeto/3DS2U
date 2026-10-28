@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <fstream>
+#include <limits>
 #include <stdexcept>
 #include <unordered_set>
 
@@ -67,29 +69,58 @@ std::u16string FromUTF8(const std::string& text) {
 } // namespace
 
 void RomFSReader::Unmount() noexcept {
-    image_.clear(); directories_.clear(); files_.clear();
-    data_offset_ = 0;
+    layers_.clear();
     ++generation_;
 }
 
 bool RomFSReader::Mount(std::span<const std::uint8_t> image, std::size_t level3_offset) {
     Unmount();
+    return MountLayer(image, level3_offset);
+}
+
+bool RomFSReader::MountFile(const std::string& filename, std::size_t level3_offset) {
+    Unmount();
+    return MountLayerFile(filename, level3_offset);
+}
+
+bool RomFSReader::MountLayerFile(const std::string& filename, std::size_t level3_offset) {
     error_.clear();
     try {
+        std::ifstream file(filename, std::ios::binary | std::ios::ate);
+        if (!file) throw std::runtime_error("Cannot open RomFS image file");
+        const auto length = file.tellg();
+        if (length < 0 || static_cast<std::uintmax_t>(length) > std::numeric_limits<std::size_t>::max() ||
+            static_cast<std::uintmax_t>(length) > static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max()))
+            throw std::runtime_error("RomFS image file is too large or unreadable");
+        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length));
+        file.seekg(0);
+        if (!file || !file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size())))
+            throw std::runtime_error("Cannot read complete RomFS image file");
+        return MountLayer(bytes, level3_offset);
+    } catch (const std::exception& error) {
+        error_ = error.what();
+        return false;
+    }
+}
+
+bool RomFSReader::MountLayer(std::span<const std::uint8_t> image, std::size_t level3_offset) {
+    error_.clear();
+    try {
+        Layer layer;
         Require(level3_offset <= image.size());
         // Copy before interpreting metadata so caller buffers may be released safely.
         const auto source = image.subspan(level3_offset);
-        image_.assign(source.begin(), source.end());
-        const std::span<const std::uint8_t> bytes{image_};
+        layer.image.assign(source.begin(), source.end());
+        const std::span<const std::uint8_t> bytes{layer.image};
         Require(LE32(bytes, 0) == 0x28u);
-        data_offset_ = LE32(bytes, 0x24);
-        Require(data_offset_ >= 0x28 && data_offset_ <= bytes.size());
+        layer.data_offset = LE32(bytes, 0x24);
+        Require(layer.data_offset >= 0x28 && layer.data_offset <= bytes.size());
         struct Range { std::uint32_t offset, size; };
         std::array<Range, 4> tables{};
         for (std::size_t i = 0; i < tables.size(); ++i) {
             tables[i] = {LE32(bytes, 4 + i * 8), LE32(bytes, 8 + i * 8)};
             const auto [offset, size] = tables[i];
-            Require(offset >= 0x28 && offset <= data_offset_ && size <= data_offset_ - offset &&
+            Require(offset >= 0x28 && offset <= layer.data_offset && size <= layer.data_offset - offset &&
                     ((offset | size) & 3u) == 0);
             for (std::size_t j = 0; j < i; ++j)
                 if (size != 0 && tables[j].size != 0)
@@ -103,7 +134,7 @@ bool RomFSReader::Mount(std::span<const std::uint8_t> image, std::size_t level3_
             const auto name_length = LE32(dirs, at + 20);
             auto name = Name(dirs, at + 24, name_length);
             Require(at == 0 ? name.empty() : !name.empty());
-            directories_.emplace(static_cast<std::uint32_t>(at), Directory{
+            layer.directories.emplace(static_cast<std::uint32_t>(at), Directory{
                 LE32(dirs, at), LE32(dirs, at + 4), LE32(dirs, at + 8),
                 LE32(dirs, at + 12), LE32(dirs, at + 16), std::move(name)});
             const auto length = (std::uint64_t{24} + name_length + 3u) & ~std::uint64_t{3};
@@ -117,50 +148,50 @@ bool RomFSReader::Mount(std::span<const std::uint8_t> image, std::size_t level3_
             auto name = Name(files, at + 32, name_length);
             Require(!name.empty());
             const auto offset = LE64(files, at + 8), size = LE64(files, at + 16);
-            Require(offset <= bytes.size() - data_offset_ && size <= bytes.size() - data_offset_ - offset);
-            files_.emplace(static_cast<std::uint32_t>(at), File{LE32(files, at), LE32(files, at + 4),
+            Require(offset <= bytes.size() - layer.data_offset && size <= bytes.size() - layer.data_offset - offset);
+            layer.files.emplace(static_cast<std::uint32_t>(at), File{LE32(files, at), LE32(files, at + 4),
                 LE32(files, at + 24), offset, size, std::move(name)});
             const auto length = (std::uint64_t{32} + name_length + 3u) & ~std::uint64_t{3};
             Require(length <= files.size() - at);
             at += static_cast<std::size_t>(length);
         }
-        const auto dir_ref = [&](auto value) { return value == kNone || directories_.contains(value); };
-        const auto file_ref = [&](auto value) { return value == kNone || files_.contains(value); };
-        for (const auto& [offset, dir] : directories_) {
+        const auto dir_ref = [&](auto value) { return value == kNone || layer.directories.contains(value); };
+        const auto file_ref = [&](auto value) { return value == kNone || layer.files.contains(value); };
+        for (const auto& [offset, dir] : layer.directories) {
             (void)offset;
             Require(dir_ref(dir.parent) && dir_ref(dir.sibling) && dir_ref(dir.child_dir) &&
                     file_ref(dir.child_file) && dir_ref(dir.hash));
         }
-        for (const auto& [offset, file] : files_) {
+        for (const auto& [offset, file] : layer.files) {
             (void)offset;
-            Require(directories_.contains(file.parent) && file_ref(file.sibling) && file_ref(file.hash));
+            Require(layer.directories.contains(file.parent) && file_ref(file.sibling) && file_ref(file.hash));
         }
         for (unsigned table : {0u, 2u})
             for (std::size_t at = 0; at < tables[table].size; at += 4) {
                 const auto ref = LE32(bytes, tables[table].offset + at);
                 Require(table == 0 ? dir_ref(ref) : file_ref(ref));
             }
-        Require(directories_.at(0).parent == 0 && directories_.at(0).sibling == kNone);
+        Require(layer.directories.at(0).parent == 0 && layer.directories.at(0).sibling == kNone);
         std::unordered_set<std::uint32_t> seen_dirs{0}, seen_files;
         std::vector<std::uint32_t> pending{0};
         while (!pending.empty()) {
             const auto parent = pending.back(); pending.pop_back();
-            const auto& dir = directories_.at(parent);
+            const auto& dir = layer.directories.at(parent);
             std::unordered_set<std::u16string> names;
-            for (auto child = dir.child_dir; child != kNone; child = directories_.at(child).sibling) {
-                const auto& record = directories_.at(child);
+            for (auto child = dir.child_dir; child != kNone; child = layer.directories.at(child).sibling) {
+                const auto& record = layer.directories.at(child);
                 Require(record.parent == parent && seen_dirs.insert(child).second && names.insert(record.name).second);
                 pending.push_back(child);
             }
-            for (auto child = dir.child_file; child != kNone; child = files_.at(child).sibling) {
-                const auto& record = files_.at(child);
+            for (auto child = dir.child_file; child != kNone; child = layer.files.at(child).sibling) {
+                const auto& record = layer.files.at(child);
                 Require(record.parent == parent && seen_files.insert(child).second && names.insert(record.name).second);
             }
         }
-        Require(seen_dirs.size() == directories_.size() && seen_files.size() == files_.size());
+        Require(seen_dirs.size() == layer.directories.size() && seen_files.size() == layer.files.size());
+        layers_.push_back(std::move(layer));
         return true;
     } catch (const std::exception& error) {
-        Unmount();
         error_ = error.what();
         return false;
     }
@@ -174,29 +205,37 @@ bool RomFSReader::OpenFile(const std::string& path, RomFSFileHandle& handle) con
 
 bool RomFSReader::OpenFile(std::u16string_view path, RomFSFileHandle& handle) const {
     handle = {};
-    if (directories_.empty() || path.size() > 2048 || !ValidUTF16(path)) return false;
+    if (layers_.empty() || path.size() > 2048 || !ValidUTF16(path)) return false;
     if (path.starts_with(u"romfs:")) path.remove_prefix(6);
     if (path.empty() || path.front() != u'/') return false;
     path.remove_prefix(1);
+    for (auto layer = layers_.size(); layer != 0; --layer)
+        if (OpenInLayer(path, layer - 1, handle)) return true;
+    return false;
+}
+
+bool RomFSReader::OpenInLayer(std::u16string_view path, std::size_t index, RomFSFileHandle& handle) const {
+    const auto& layer = layers_[index];
     std::uint32_t directory = 0;
     while (!path.empty()) {
         const auto slash = path.find(u'/');
         const auto component = path.substr(0, slash);
         if (component.empty() || component == u"." || component == u"..") return false;
         if (slash == std::u16string_view::npos) {
-            for (auto file = directories_.at(directory).child_file; file != kNone; file = files_.at(file).sibling) {
-                const auto& record = files_.at(file);
+            for (auto file = layer.directories.at(directory).child_file; file != kNone; file = layer.files.at(file).sibling) {
+                const auto& record = layer.files.at(file);
                 if (record.name == component) {
                     handle.owner_ = this; handle.generation_ = generation_;
-                    handle.offset_ = data_offset_ + record.offset; handle.size_ = record.size;
+                    handle.layer_ = index;
+                    handle.offset_ = layer.data_offset + record.offset; handle.size_ = record.size;
                     return true;
                 }
             }
             return false;
         }
         bool found = false;
-        for (auto child = directories_.at(directory).child_dir; child != kNone; child = directories_.at(child).sibling)
-            if (directories_.at(child).name == component) { directory = child; found = true; break; }
+        for (auto child = layer.directories.at(directory).child_dir; child != kNone; child = layer.directories.at(child).sibling)
+            if (layer.directories.at(child).name == component) { directory = child; found = true; break; }
         if (!found) return false;
         path.remove_prefix(slash + 1);
     }
@@ -205,12 +244,13 @@ bool RomFSReader::OpenFile(std::u16string_view path, RomFSFileHandle& handle) co
 
 std::size_t RomFSReader::ReadFile(const RomFSFileHandle& handle, std::uint64_t offset,
                                  void* buffer, std::size_t size) const {
-    if (handle.owner_ != this || handle.generation_ != generation_ || image_.empty())
+    if (handle.owner_ != this || handle.generation_ != generation_ || handle.layer_ >= layers_.size())
         throw std::invalid_argument("Invalid or stale RomFS file handle");
     if (offset >= handle.size_ || size == 0) return 0;
     if (buffer == nullptr) throw std::invalid_argument("Null RomFS read buffer");
     const auto count = static_cast<std::size_t>(std::min<std::uint64_t>(size, handle.size_ - offset));
-    std::memcpy(buffer, image_.data() + static_cast<std::size_t>(handle.offset_ + offset), count);
+    const auto& image = layers_[handle.layer_].image;
+    std::memcpy(buffer, image.data() + static_cast<std::size_t>(handle.offset_ + offset), count);
     return count;
 }
 } // namespace wiiu

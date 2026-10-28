@@ -1,9 +1,12 @@
 # RomFS and read-only FS HLE
 
-`RomFSReader` owns a copy of an unencrypted **Level-3 filesystem image**.
+`RomFSReader` owns copies of unencrypted **Level-3 filesystem images**.
 `Mount(bytes, level3_offset)` also accepts an explicit offset into a larger
 buffer. It does not discover/decrypt NCCH or IVFC containers or verify hashes.
-The input may be released after mounting.
+The input may be released after mounting. `MountLayer` adds a higher-priority
+image without replacing the base; `MountFile` and `MountLayerFile` load images
+from host/mounted-device paths. See [DLC layering](aoc-layering.md) for the
+priority, handle and service contracts.
 
 ```cpp
 wiiu::RomFSReader reader;
@@ -13,7 +16,9 @@ const auto result = services.FSUSER_Initialize();
 ```
 
 The reader must outlive FS calls through the attached manager. No SD-card file
-is automatically loaded, and the existing build script does not embed RomFS.
+is automatically loaded by the reader. The build pipeline embeds the base RomFS;
+the runtime mounts that packaged image explicitly. Additional DLC mounts require
+caller configuration.
 To mount from FCRAM, pass a byte span over a checked `GetPointer(address, size)`
 range. Owned image storage consumes additional host RAM.
 
