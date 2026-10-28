@@ -12,15 +12,18 @@ register/command-processor implementation.
 | `0x1EF0020C` | Write `1` to draw |
 
 Each vertex starts with little-endian float3 XYZ at offset 0 and little-endian
-float4 RGBA at offset 12. Position is already in clip space; the fetch shader
-supplies W=1. Extra stride padding is allowed, up to 2044 bytes. Pointers must be
+float4 RGBA at offset 12. The fetch shader supplies W=1; the vertex shader
+transforms position with the uploaded matrix (identity by default).
+Extra stride padding is allowed, up to 2044 bytes. Pointers must be
 word aligned. The complete `count * stride` range is checked against FCRAM before
 it is exposed to GX2.
 
 The GX2 manager copies guest LE bytes into aligned per-frame uploads and uses
 `GX2_ENDIAN_SWAP_NONE` for both attributes. Uploads stay alive through
 `GX2DrawDone`. Minimal embedded vertex/pixel programs export position and pass
-color through; a GX2-generated fetch shader binds the two attributes. No GLSL
+color through; the vertex shader now applies a row-major mat4 from c0–c3,
+defaulting to identity. See [vertex uniforms](vertex-uniforms.md).
+A GX2-generated fetch shader binds the two attributes. No GLSL
 compiler, GFD asset, or proprietary SDK shader is required. Shader words in
 `default_shaders.hpp` are serialized LE before GPU cache invalidation.
 

@@ -1,6 +1,7 @@
 #include "pica200.hpp"
 #include "gx2_manager.hpp"
 #include "wiiu_memory.hpp"
+#include "float24.hpp"
 #include <limits>
 #include <stdexcept>
 
@@ -8,7 +9,17 @@ namespace wiiu {
 
 std::uint32_t Pica200::GetRegisterValue(std::uint32_t address) const noexcept {
     const auto it = registers_.find(address);
-    return it == registers_.end() ? 0u : it->second;
+    if (it != registers_.end()) return it->second;
+    if (address >= kUniformBase && address < kUniformEnd && (address & 3u) == 0)
+        return uniforms24_[(address - kUniformBase) / 4u];
+    return 0;
+}
+
+Pica200::VertexUniforms Pica200::GetVertexUniforms() const noexcept {
+    VertexUniforms result{};
+    for (std::size_t i = 0; i < result.size(); ++i)
+        result[i] = float24_to_float32(uniforms24_[i]);
+    return result;
 }
 
 void Pica200::BeginCommandList(WiiUMemory& memory) {
@@ -45,7 +56,9 @@ const void* Pica200::ValidateDraw(const DrawRequest& request) const {
 }
 
 void Pica200::SubmitDraw(const DrawRequest& request) {
-    gx2_manager_.DrawTriangles(ValidateDraw(request), request.count, request.stride);
+    const auto* vertices = ValidateDraw(request);
+    gx2_manager_.SetVertexUniforms(request.uniforms.data(), kUniformFloatCount);
+    gx2_manager_.DrawTriangles(vertices, request.count, request.stride);
 }
 
 void Pica200::WriteMMIO(std::uint32_t address, std::uint32_t value, std::uint8_t byte_mask) {
@@ -58,6 +71,10 @@ void Pica200::WriteMMIO(std::uint32_t address, std::uint32_t value, std::uint8_t
     value = (GetRegisterValue(address) & ~bits) | (value & bits);
     // Shadow unknown/uniform registers too, so masked and consecutive writes persist.
     registers_[address] = value;
+    if (address >= kUniformBase && address < kUniformEnd) {
+        uniforms24_[(address - kUniformBase) / 4u] = value & 0xFFFFFFu;
+        return;
+    }
     switch (address) {
     case kClearColorRegister: {
         const float r = static_cast<float>((value >> 16) & 0xFFu) / 255.0f;
@@ -72,7 +89,7 @@ void Pica200::WriteMMIO(std::uint32_t address, std::uint32_t value, std::uint8_t
     case kDrawRegister: {
         if ((byte_mask & 1u) == 0) return;
         if (value != 1 || vertex_count_ == 0) return;
-        const DrawRequest request{vbo_addr_, vbo_stride_, vertex_count_};
+        const DrawRequest request{vbo_addr_, vbo_stride_, vertex_count_, GetVertexUniforms()};
         if (batching_) pending_draws_.push_back(request);
         else SubmitDraw(request);
         break;

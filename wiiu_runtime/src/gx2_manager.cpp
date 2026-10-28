@@ -18,6 +18,7 @@
 #include <span>
 #include <limits>
 #include <stdexcept>
+#include <algorithm>
 
 namespace wiiu::gx2 {
 namespace {
@@ -57,7 +58,9 @@ bool GX2Manager::InitializeShaders() {
     if (vertex_shader_.program == nullptr || pixel_shader_.program == nullptr) return false;
     vertex_shader_.size = pixel_shader_.size = 256;
     vertex_shader_.mode = pixel_shader_.mode = GX2_SHADER_MODE_UNIFORM_REGISTER;
-    vertex_shader_.regs.sq_pgm_resources_vs = 3u | (1u << 8);
+    vertex_shader_.regs.sq_pgm_resources_vs = 4u | (1u << 8);
+    vertex_shader_.uniformVarCount = 1;
+    vertex_shader_.uniformVars = &matrix_uniform_;
     vertex_shader_.regs.num_spi_vs_out_id = 1;
     vertex_shader_.regs.spi_vs_out_id[0] = 0xFFFFFF00u;
     vertex_shader_.regs.sq_vtx_semantic_clear = 0xFFFFFFFCu;
@@ -117,6 +120,8 @@ void GX2Manager::DrawTriangles(const void* vtx_data, std::uint32_t count, std::u
         GX2SetFetchShader(&fetch_shader_);
         GX2SetVertexShader(&vertex_shader_);
         GX2SetPixelShader(&pixel_shader_);
+        // Each output has a separate GX2 context; restore constants after binding it.
+        GX2SetVertexUniformReg(0, static_cast<std::uint32_t>(vertex_uniforms_.size()), vertex_uniforms_.data());
         GX2SetCullOnlyControl(GX2_FRONT_FACE_CCW, FALSE, FALSE);
         GX2SetDepthOnlyControl(FALSE, FALSE, GX2_COMPARE_FUNC_ALWAYS);
         GX2SetColorControl(GX2_LOGIC_OP_COPY, 0, FALSE, TRUE);
@@ -126,6 +131,16 @@ void GX2Manager::DrawTriangles(const void* vtx_data, std::uint32_t count, std::u
         GX2DrawEx(GX2_PRIMITIVE_MODE_TRIANGLES, count, 0, 1);
     }
     BindOutput(Output::TV);
+}
+
+void GX2Manager::SetVertexUniforms(const float* data, std::uint32_t count) {
+    if (data == nullptr || count == 0 || count > vertex_uniforms_.size() || (count & 3u) != 0)
+        throw std::invalid_argument("Invalid vertex uniform scalar count");
+    if (!initialized_ || !frame_active_)
+        throw std::logic_error("Vertex uniform update requires an active GX2 frame");
+    std::copy_n(data, count, vertex_uniforms_.begin());
+    // Native float values: GX2 emits PPC numeric constants into the command stream.
+    GX2SetVertexUniformReg(0, count, vertex_uniforms_.data());
 }
 
 GX2Manager::~GX2Manager() noexcept {

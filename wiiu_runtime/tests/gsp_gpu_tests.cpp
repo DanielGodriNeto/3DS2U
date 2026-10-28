@@ -2,6 +2,8 @@
 #include "pica200.hpp"
 #include "wiiu_memory.hpp"
 #include "gx2_manager.hpp"
+#include "float24.hpp"
+#include "default_shaders.hpp"
 
 #include <algorithm>
 #include <array>
@@ -9,6 +11,8 @@
 #include <iostream>
 #include <stdexcept>
 #include <vector>
+#include <bit>
+#include <cmath>
 
 namespace {
 void Check(bool condition) {
@@ -38,9 +42,66 @@ template<class Operation> void Reject(Operation operation) {
     try { operation(); } catch (const std::exception&) { caught = true; }
     Check(caught);
 }
+
+void CheckFloat24() {
+    Check(wiiu::float24_to_float32(0) == 0.0f);
+    Check(wiiu::float24_to_float32(0x3F0000u) == 1.0f);
+    Check(wiiu::float24_to_float32(0x3F8000u) == 1.5f);
+    Check(wiiu::float24_to_float32(0xBF0000u) == -1.0f);
+    Check(std::bit_cast<std::uint32_t>(wiiu::float24_to_float32(0x800000u)) == 0x80000000u);
+    Check(std::isinf(wiiu::float24_to_float32(0x7F0000u)));
+    Check(std::isnan(wiiu::float24_to_float32(0x7F0001u)));
+    Check(wiiu::float24_to_float32(0xFF3F0000u) == 1.0f);
+    for (unsigned sign = 0; sign < 2; ++sign) {
+        for (std::uint32_t mantissa = 1; mantissa < 65536; ++mantissa) {
+            float expected = std::ldexp(static_cast<float>(mantissa), -78);
+            if (sign != 0) expected = -expected;
+            Check(wiiu::float24_to_float32((sign << 23) | mantissa) == expected);
+        }
+        for (std::uint32_t exponent = 1; exponent < 127; ++exponent) {
+            for (std::uint32_t mantissa : {0u, 1u, 0x8000u, 0xFFFFu}) {
+                float expected = std::ldexp(1.0f + static_cast<float>(mantissa) / 65536.0f,
+                                           static_cast<int>(exponent) - 63);
+                if (sign != 0) expected = -expected;
+                Check(wiiu::float24_to_float32((sign << 23) | (exponent << 16) | mantissa) == expected);
+            }
+        }
+    }
+}
+
+// Execute the encoded DOT4 clauses on the host to check matrix indexing/export.
+std::array<float, 4> RunVertexProgram(const std::vector<float>& constants,
+                                     const std::array<float, 4>& input) {
+    const auto& words = wiiu::gx2::shaders::vertex;
+    const auto address = words[2] & 0x3FFFFFu;
+    Check(((words[3] >> 18) & 0x7Fu) + 1 == 16);
+    Check(((words[4] >> 15) & 0x7Fu) == 3);
+    std::array<float, 4> result{};
+    for (unsigned group = 0; group < 4; ++group) {
+        float dot = 0;
+        for (unsigned slot = 0; slot < 4; ++slot) {
+            const auto word0 = words[address * 2 + group * 8 + slot * 2];
+            const auto word1 = words[address * 2 + group * 8 + slot * 2 + 1];
+            Check((word0 & 0x1FFu) == 1 && ((word1 >> 7) & 0x7FFu) == 0x50);
+            Check((word0 >> 31) == (slot == 3 ? 1u : 0u));
+            const auto reg = (word0 >> 13) & 0x1FFu;
+            Check(reg >= 256 && reg < 260);
+            dot += input[(word0 >> 10) & 3u] * constants[(reg - 256) * 4 + ((word0 >> 23) & 3u)];
+        }
+        for (unsigned slot = 0; slot < 4; ++slot) {
+            const auto word1 = words[address * 2 + group * 8 + slot * 2 + 1];
+            if ((word1 & 0x10u) != 0) {
+                Check(((word1 >> 21) & 0x7Fu) == 3);
+                result[(word1 >> 29) & 3u] = dot;
+            }
+        }
+    }
+    return result;
+}
 } // namespace
 
 int main() {
+    CheckFloat24();
     wiiu::gx2::GX2Manager graphics;
     wiiu::Pica200 pica(graphics);
     wiiu::WiiUMemory memory(pica);
@@ -53,21 +114,25 @@ int main() {
     Packet(commands, 0, {0x0000FF00u});
     Packet(commands, 0x80, {0x08001000u, 28, 3, 1}, true);
     // This uniform write follows the draw trigger and must precede native submission.
-    Packet(commands, 0xA0, {0x3F800000u, 0x40000000u, 0x40400000u}, true);
+    Packet(commands, 0xA0, {0x3F0000u, 0x400000u, 0x404000u}, true);
     Packet(commands, 0x10, {0x12345678u});
     Packet(commands, 0x10, {0x12345678u});
     Packet(commands, 0, {0x00FF0000u}); // FINALIZE terminates before this write.
     graphics.before_draw = [&] {
-        Check(pica.GetRegisterValue(0x1EF00288u) == 0x40400000u);
+        Check(pica.GetRegisterValue(0x1EF00288u) == 0x404000u);
     };
     Run(gsp, memory, commands);
     Check(graphics.draws == 1 && graphics.vertex_count == 3 && graphics.vertex_stride == 28);
     Check(graphics.color == std::array<float, 4>{0, 1, 0, 1});
     Check(pica.GetRegisterValue(0x1EF00200u) == 0x08001000u);
-    Check(pica.GetRegisterValue(0x1EF00280u) == 0x3F800000u);
-    Check(pica.GetRegisterValue(0x1EF00284u) == 0x40000000u);
+    Check(pica.GetRegisterValue(0x1EF00280u) == 0x3F0000u);
+    Check(pica.GetRegisterValue(0x1EF00284u) == 0x400000u);
     Check(std::equal(graphics.vertex_bytes.begin(), graphics.vertex_bytes.end(), vertices.begin()));
     Check(memory.ConsumeFrameRequest() && !memory.ConsumeFrameRequest());
+    Check(graphics.uniforms.size() == 384);
+    for (unsigned i = 0; i < 16; ++i)
+        Check(graphics.uniforms[i] == (i % 5 == 0 ? 1.0f : 0.0f));
+    Check(RunVertexProgram(graphics.uniforms, {1, 2, 3, 1}) == std::array<float, 4>{1, 2, 3, 1});
     graphics.before_draw = {};
 
     commands.clear();
@@ -133,5 +198,35 @@ int main() {
     Run(gsp, memory, commands); // Failed list must not leave batching active.
     Check(graphics.draws == 4 && memory.ConsumeFrameRequest());
     gsp.ProcessCommandBuffer(memory, 0, 0);
-    std::cout << "GSP packets, masks, batches, deferred draws and malformed-buffer tests passed.\n";
+
+    // Uniform writes after a trigger must not alter that draw's captured matrix.
+    commands.clear();
+    Packet(commands, 0xA0, {0x3F0000u, 0, 0, 0,
+                          0, 0x3F0000u, 0, 0,
+                          0, 0, 0x3F0000u, 0,
+                          0, 0, 0, 0x3F0000u}, true);
+    Packet(commands, 0x83, {1});
+    Packet(commands, 0xA0, {0x400000u, 0, 0, 0x404000u}, true); // x' = 2*x + 2.5*w
+    Packet(commands, 0x83, {1});
+    Packet(commands, 0xA0, {0x408000u}); // Later 3.0 must not leak into either draw.
+    Packet(commands, 0x21F, {0xBF0000u}); // Last of 384 scalar slots, address 0x1EF0087C.
+    Run(gsp, memory, commands);
+    const auto total = graphics.uniform_history.size();
+    Check(total >= 2);
+    const auto& first = graphics.uniform_history[total - 2];
+    const auto& second = graphics.uniform_history[total - 1];
+    Check(first[0] == 1.0f && second[0] == 2.0f && second[3] == 2.5f);
+    Check(RunVertexProgram(second, {1, 2, 3, 1}) == std::array<float, 4>{4.5f, 2, 3, 1});
+    Check(pica.GetVertexUniforms()[0] == 3.0f && pica.GetVertexUniforms()[383] == -1.0f);
+    Check(graphics.uniforms[383] != -1.0f);
+    for (std::uint32_t i = 0; i < wiiu::Pica200::kUniformFloatCount; ++i)
+        pica.WriteMMIO(wiiu::Pica200::kUniformBase + i * 4u, 0x3F0000u + i);
+    const auto all_uniforms = pica.GetVertexUniforms();
+    for (std::uint32_t i = 0; i < wiiu::Pica200::kUniformFloatCount; ++i)
+        Check(all_uniforms[i] == 1.0f + static_cast<float>(i) / 65536.0f);
+    commands.clear();
+    Packet(commands, 0x83, {1});
+    Run(gsp, memory, commands);
+    Check(std::equal(all_uniforms.begin(), all_uniforms.end(), graphics.uniforms.begin()));
+    std::cout << "Float24 conversion, matrix shader, uniform snapshots and GSP regression tests passed.\n";
 }

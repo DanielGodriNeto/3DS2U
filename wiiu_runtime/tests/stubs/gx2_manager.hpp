@@ -10,6 +10,10 @@ namespace wiiu::gx2 {
 // Host test double; production builds use wiiu_runtime/include/gx2_manager.hpp.
 class GX2Manager {
 public:
+    void SetVertexUniforms(const float* data, std::uint32_t count) {
+        uniforms.assign(data, data + count);
+        uniform_history.push_back(uniforms);
+    }
     void SetClearColor(float r, float g, float b, float a) noexcept {
         color = {r, g, b, a};
         ++writes;
@@ -31,6 +35,8 @@ public:
     std::vector<std::uint8_t> vertex_bytes;
     std::vector<std::uint32_t> draw_counts;
     std::function<void()> before_draw;
+    std::vector<float> uniforms;
+    std::vector<std::vector<float>> uniform_history;
 };
 
 } // namespace wiiu::gx2

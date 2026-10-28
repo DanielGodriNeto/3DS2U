@@ -33,8 +33,9 @@ significant byte. Disabled bytes retain their previous Pica200 shadow value,
 including values written through direct MMIO. A zero mask performs no write.
 A draw-register write whose low byte is masked off cannot retrigger a draw.
 
-Pica200 stores unknown and uniform registers for observation/masked updates;
-it does not yet interpret matrix formats or apply those values to GX2 shaders.
+Pica200 stores unknown registers for observation/masked updates. The extended MVP
+uniform bank converts float24 values and snapshots them for GX2 matrix draws;
+see [vertex uniforms](vertex-uniforms.md) for its custom address mapping.
 
 ## MVP register mapping
 
@@ -45,7 +46,7 @@ it does not yet interpret matrix formats or apply those values to GX2 shaders.
 | `0x0081` | `0x1EF00204` | MVP byte stride |
 | `0x0082` | `0x1EF00208` | MVP vertex count |
 | `0x0083` | `0x1EF0020C` | MVP draw trigger, value one |
-| `0x00A0` onward | `0x1EF00280` onward | Retained MVP uniform register words |
+| `0x00A0`–`0x021F` | `0x1EF00280`–`0x1EF0087C` | MVP float24 uniform scalar words |
 | `0x0010` | `0x1EF00040` | FINALIZE marker |
 
 These geometry/clear/uniform assignments retain the project's **custom MVP

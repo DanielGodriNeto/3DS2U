@@ -35,6 +35,9 @@ public:
     // Guest vertices are LE float3 position + float4 color; stride may include padding.
     // Requires an active frame. Uploads remain owned until GPU completion.
     void DrawTriangles(const void* vtx_data, std::uint32_t count, std::uint32_t stride);
+    // Count is scalar floats (a multiple of four), maximum 96 vec4s.
+    // Register mode: row-major modelview/projection matrix occupies c0-c3.
+    void SetVertexUniforms(const float* uniform_data, std::uint32_t count);
     void BindOutput(Output output); // Select TV or DRC for subsequent GX2 draws.
     void EndFrame();
     void Shutdown() noexcept;
@@ -59,6 +62,12 @@ private:
     GX2VertexShader vertex_shader_{};
     GX2PixelShader pixel_shader_{};
     GX2FetchShader fetch_shader_{};
+    std::array<float, 384> vertex_uniforms_ = [] {
+        std::array<float, 384> values{};
+        for (unsigned i = 0; i < 4; ++i) values[i * 5] = 1.0f;
+        return values;
+    }();
+    GX2UniformVar matrix_uniform_{"modelview_projection", GX2_SHADER_VAR_TYPE_FLOAT4X4, 1, 0, -1};
     std::vector<void*> frame_uploads_;
     bool gx2_started_{};
     bool initialized_{};

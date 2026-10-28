@@ -29,7 +29,7 @@ Wii U/Cemu: block dispatcher + memory + GX2 + VPAD + HLE
 | Thumb-16 | Immediate arithmetic, register ALU operations, word load/store, PUSH/POP, branches, explicit mode ranges |
 | Loader | Uncompressed ExeFS `.code` plus separate decrypted ExHeader; text/rodata/data and BSS mapping; raw instruction fixtures |
 | Memory | 128 MiB FCRAM buffer aligned to 4 KiB; bounded accesses; guest little-endian data swapped on big-endian PPC |
-| Graphics | MVP PICA200-to-GX2 bridge: clear color, vertex buffer, stride/count, triangle draw commands; default pass-through vertex/pixel shaders |
+| Graphics | MVP PICA200-to-GX2 bridge: clear color, vertex buffer, stride/count, triangle draws; float24 uniforms, default matrix vertex shader and color pixel shader |
 | GPU command buffers | PICA packet parser, byte masks, FIFO/consecutive writes, FINALIZE and deferred draw snapshots through the MVP bridge |
 | Input | VPAD buttons mapped to 3DS masks; calibrated touch scaled to 320×240; custom readable HID registers |
 | HLE | srv/apt initialization and loop placeholders; CSND/DSP success and readiness stubs; audio MMIO no-op writes |
@@ -197,6 +197,7 @@ build\audio_stub_tests.exe
 
 Additional architecture notes: [graphics bridge](docs/graphics-mvp.md),
 [GSP command buffers](docs/gsp-command-buffers.md),
+[vertex uniforms](docs/vertex-uniforms.md),
 [HID bridge](docs/hid-mvp.md), and [audio stubs](docs/audio-stubs.md).
 
 ## Current compatibility limits
