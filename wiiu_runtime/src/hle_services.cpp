@@ -78,7 +78,7 @@ std::uint32_t HLEServiceManager::RO_RegisterModule(WiiUMemory& memory,
 std::uint32_t HLEServiceManager::RO_LoadModule(WiiUMemory& memory,
     std::uint32_t source, std::uint32_t size, std::uint32_t destination, CROModule& out) {
     try {
-        if (size < 0x138 || size > WiiUMemory::kFCRAMSize) return kROInvalidArgument;
+        if (size < 0x138 || size > memory.GetSize()) return kROInvalidArgument;
         const auto* bytes = static_cast<const std::uint8_t*>(memory.GetPointer(source, size));
         if (!cro_loader_.LoadModule(memory, bytes, size, destination, out)) {
             OSReport("[3DS2U RO] Load failed: %s\n", cro_loader_.LastError().c_str());

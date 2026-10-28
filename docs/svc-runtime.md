@@ -39,7 +39,8 @@ not waitable synchronization objects.
 
 ControlMemory supports operation 3 (commit/allocate) and 1 (free), with r2 zero.
 Sizes round up to 4 KiB; addresses must be page aligned and stay within
-`[0x08000000, 0x10000000)`, above reserved images. Address zero requests first-fit
+the selected O3DS `[0x08000000, 0x10000000)` or N3DS
+`[0x08000000, 0x18000000)` window, above reserved images. Address zero requests first-fit
 allocation. Explicit overlapping addresses fail. Free requires an exact allocation
 start and matching rounded size; double frees fail. Pages are zeroed on allocation
 and release. Permissions 1–7 are accepted but not enforced: this flat software
@@ -54,7 +55,10 @@ belong to memory already reserved/allocated by the caller. Separately, the runti
 allocates an aligned 128 KiB PPC stack and stable OSThread storage, starts a native
 trampoline using `OSCreateThread`, then calls `OSResumeThread`. Guest priorities
 0–63 map to PPC priorities 0–31 by division by two. Processor 0/1 selects CPU0/1;
--1/-2 allows any Wii U core. This is an approximation, not 3DS scheduler fidelity.
+N3DS mode additionally maps processor 2 to CPU2. The mask is supplied at creation
+and through `OSSetThreadAffinity` before resume; a failed explicit update retains
+the creation mask. -1/-2 allows any Wii U core. The runtime entry point attempts
+to pin the GX2 rendering thread to Core 1. This is an approximation, not 3DS scheduler fidelity.
 
 Translated guest blocks are serialized with an OSMutex so shared FCRAM and runtime
 state are not executed concurrently. Wait requests only mark the CPU blocked and

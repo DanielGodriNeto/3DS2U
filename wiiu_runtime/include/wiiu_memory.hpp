@@ -11,22 +11,27 @@ class Pica200;
 class HIDManager;
 class AudioDriver;
 
-// Owns a page-aligned host buffer for the guest window [0x08000000, 0x10000000).
+// Owns 128 MiB (O3DS) or 256 MiB (N3DS), starting at guest VA 0x08000000.
 // This is a software address mapping; it does not map guest addresses into PPC VA.
 class WiiUMemory {
 public:
     static constexpr std::uint32_t kVirtualBase = 0x08000000u;
+    // Legacy size constant; use GetSize() for all instance bounds checks.
     static constexpr std::uint32_t kFCRAMSize = 128u * 1024u * 1024u;
+    static constexpr std::uint32_t kNewFCRAMSize = 256u * 1024u * 1024u;
     static constexpr std::uint32_t kPageSize = 0x1000u;
 
     // Requires initialized wut default heaps; throws std::bad_alloc on failure.
-    WiiUMemory();
+    explicit WiiUMemory(bool is_new_3ds = false);
     ~WiiUMemory() noexcept;
 
     WiiUMemory(const WiiUMemory&) = delete;
     WiiUMemory& operator=(const WiiUMemory&) = delete;
     WiiUMemory(WiiUMemory&&) = delete;
     WiiUMemory& operator=(WiiUMemory&&) = delete;
+    [[nodiscard]] std::uint32_t GetSize() const noexcept { return fcram_size_; }
+    [[nodiscard]] std::uint32_t GetVirtualEnd() const noexcept { return kVirtualBase + fcram_size_; }
+    [[nodiscard]] bool IsNew3DS() const noexcept { return fcram_size_ == kNewFCRAMSize; }
 
     // The attached bridge must outlive all MMIO writes through this memory.
     void SetPica200(Pica200& pica200) noexcept;
@@ -64,8 +69,9 @@ public:
     void Write16(std::uint32_t addr, std::uint16_t val);
 
 private:
-    [[nodiscard]] static std::size_t Offset(std::uint32_t addr, std::size_t width);
+    [[nodiscard]] std::size_t Offset(std::uint32_t addr, std::size_t width) const;
 
+    std::uint32_t fcram_size_;
     std::byte* fcram_;
     Pica200* pica200_{};
     HIDManager* hid_{};

@@ -32,16 +32,16 @@ Wii U/Cemu: block dispatcher + memory + GX2 + VPAD + HLE
 | Display transfer | RGBA8/RGB8/RGB565 conversion, linear/Morton blits and separate top-screen TV / bottom-screen DRC presentation |
 | Loader | Uncompressed ExeFS `.code` plus separate decrypted ExHeader; text/rodata/data and BSS mapping; raw instruction fixtures |
 | Extraction/package | Version-zero 3DSX extraction and relocation, generated section metadata, embedded Level-3 RomFS and a two-argument build pipeline |
-| Memory | 128 MiB FCRAM buffer aligned to 4 KiB; bounded accesses; guest little-endian data swapped on big-endian PPC |
+| Memory | Selectable 128/256 MiB O3DS/N3DS FCRAM aligned to 4 KiB; bounded accesses; guest little-endian data swapped on big-endian PPC |
 | Graphics | MVP PICA200-to-GX2 bridge: clear color, vertex buffer, stride/count, triangle draws; float24 uniforms, default matrix vertex shader and color pixel shader |
 | GPU command buffers | PICA packet parser, byte masks, FIFO/consecutive writes, FINALIZE and deferred draw snapshots through the MVP bridge |
 | Textures | 8×8 Morton deswizzling for RGBA8/RGB565/RGBA4444, linear RGBA8 GX2 upload, UV/color-modulated sampling on texture unit 0 |
 | TEV | Six-stage source/modifier/constant tracking, Replace/Multiply/Add/Subtract, fixed GX2 combiner programs and per-draw uniform blocks through project register aliases |
-| Input | VPAD buttons mapped to 3DS masks; calibrated touch scaled to 320×240; custom readable HID registers |
+| Input | VPAD buttons/dual sticks, N3DS ZL/ZR and C-Stick; HID/IRRST ring snapshots, calibrated 320×240 touch and readable aliases |
 | HLE / audio | srv/apt placeholders; explicit CSND/DSP playback helpers; 16 AX voices, PCM8/PCM16 conversion, configured DSP ADPCM and synthetic volume/pitch MMIO |
 | RomFS / FS | Prioritized base/DLC Level-3 layers from buffers/files, Unicode paths, read-only RomFS plus persistent title-scoped SaveData/ExtData, explicit fs:USER/file IPC handlers |
 | DLC discovery | Configured per-game Title IDs, explicit `aoc:u` count/list shim and service-port dispatch |
-| Kernel SVC | ARM/T16 interception, image-aware page heap, CoreInit workers, address arbitration and thread/event waits |
+| Kernel SVC | ARM/T16 interception, model-aware page heap, CoreInit worker affinity on cores 0/1/2, address arbitration and thread/event waits |
 | Dispatch | ARM/Thumb-aware block lookup, mode exchange, bounded execution slices and yield after draw commands |
 
 The graphics path does **not** translate arbitrary PICA200 shaders or command
@@ -215,7 +215,7 @@ Additional architecture notes: [graphics bridge](docs/graphics-mvp.md),
 [vertex uniforms](docs/vertex-uniforms.md),
 [texture pipeline](docs/textures.md),
 [RomFS and file services](docs/romfs.md), [DLC service and layers](docs/aoc-layering.md), [persistent saves](docs/save-data.md),
-[SVC runtime](docs/svc-runtime.md),
+[SVC runtime](docs/svc-runtime.md), [N3DS expansion](docs/n3ds-expansion.md),
 [VFP and T32](docs/vfp-thumb32.md),
 [CRO modules and RO HLE](docs/cro-modules.md),
 [display transfer and dual screens](docs/display-transfer.md),
@@ -231,8 +231,8 @@ Additional architecture notes: [graphics bridge](docs/graphics-mvp.md),
   require external extraction/decryption with tools such as ctrtool.
 - Instruction support is partial. IT and unimplemented T32/VFP forms are unsupported;
   automatic code/data separation and reachable-code discovery are absent.
-- Guest memory must fit the runtime's fixed `[0x08000000, 0x10000000)` FCRAM
-  window. General MMU mappings, full system services, and game assets are absent.
+- Guest memory uses a flat O3DS 128 MiB or N3DS 256 MiB window starting at
+  `0x08000000`. General MMU mappings and full system services remain incomplete.
 - The runtime entry currently starts at `0x08000000`. The loader logs the ExHeader
   text address, but other runtime entry addresses require integration changes.
 - The geometry bridge expects LE float3 position plus float4 color and custom

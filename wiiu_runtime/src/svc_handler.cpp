@@ -131,7 +131,7 @@ struct SvcHandler::Impl {
         const auto operation = cpu.r[0], requested = cpu.r[1], size = cpu.r[3];
         cpu.r[1] = 0;
         if ((operation != 1 && operation != 3) || cpu.r[2] != 0) return kNotSupported;
-        if (size == 0 || size > WiiUMemory::kFCRAMSize) return kInvalidArgument;
+        if (size == 0 || size > memory.GetSize()) return kInvalidArgument;
         const auto rounded = (size + 0xFFFu) & ~0xFFFu;
         if (operation == 1) {
             const auto it = allocations.find(requested);
@@ -142,7 +142,7 @@ struct SvcHandler::Impl {
         }
         if (cpu.r[4] == 0 || cpu.r[4] > 7) return kInvalidArgument;
         const auto floor = (memory.GetImageEnd() + 0xFFFu) & ~0xFFFu;
-        constexpr auto end = WiiUMemory::kVirtualBase + WiiUMemory::kFCRAMSize;
+        const auto end = memory.GetVirtualEnd();
         auto address = requested == 0 ? memory.FindFreeRange(rounded) : requested;
         if (requested == 0 && address == 0) return kOutOfResources;
         if ((address & 0xFFFu) != 0 || address < floor || address > end || rounded > end - address)
@@ -185,7 +185,8 @@ struct SvcHandler::Impl {
         const auto priority = cpu.r[0], entry = cpu.r[1], argument = cpu.r[2], sp = cpu.r[3];
         const auto processor = Signed(cpu.r[4]); cpu.r[1] = 0;
         if (runner == nullptr) return kNotSupported;
-        if (priority > 63 || sp < 16 || (sp & 15u) != 0 || processor < -2 || processor > 1 ||
+        if (priority > 63 || sp < 16 || (sp & 15u) != 0 || processor < -2 ||
+            processor > (memory.IsNew3DS() ? 2 : 1) ||
             ((entry & 1u) == 0 && (entry & 3u) != 0)) return kInvalidArgument;
         (void)memory.GetPointer(sp - 16, 16);
         (void)memory.GetPointer(entry & ~1u, (entry & 1u) != 0 ? 2 : 4);
@@ -203,13 +204,18 @@ struct SvcHandler::Impl {
         auto* raw = thread.get();
         const auto id = next_handle++;
         threads.emplace(id, std::move(thread));
-        const auto affinity = processor == 0 ? OS_THREAD_ATTRIB_AFFINITY_CPU0 :
-                              processor == 1 ? OS_THREAD_ATTRIB_AFFINITY_CPU1 : OS_THREAD_ATTRIB_AFFINITY_ANY;
+        const auto affinity = static_cast<OSThreadAttributes>(
+            processor == 0 ? OS_THREAD_ATTRIB_AFFINITY_CPU0 :
+            processor == 1 ? OS_THREAD_ATTRIB_AFFINITY_CPU1 :
+            processor == 2 ? OS_THREAD_ATTRIB_AFFINITY_CPU2 : OS_THREAD_ATTRIB_AFFINITY_ANY);
         if (!OSCreateThread(&raw->native, ThreadEntry, 1, reinterpret_cast<char*>(raw->argv),
                             static_cast<std::uint8_t*>(raw->stack) + stack_size, stack_size,
                             static_cast<std::int32_t>(priority / 2u), affinity)) {
             threads.erase(id); return kOutOfResources;
         }
+        // Creation already supplies this mask; retain it if the explicit update fails.
+        if (!OSSetThreadAffinity(&raw->native, static_cast<std::uint32_t>(affinity)))
+            OSReport("[3DS2U SVC] Affinity update failed; retaining creation affinity\n");
         OSResumeThread(&raw->native);
         cpu.r[1] = id;
         return 0;

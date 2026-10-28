@@ -19,6 +19,7 @@ namespace wiiu {
 static_assert(std::endian::native == std::endian::big ||
               std::endian::native == std::endian::little);
 static_assert(WiiUMemory::kFCRAMSize % WiiUMemory::kPageSize == 0);
+static_assert(WiiUMemory::kNewFCRAMSize % WiiUMemory::kPageSize == 0);
 
 namespace {
 // PPC swaps every FCRAM access; LE hosts can exercise the same memory paths.
@@ -46,13 +47,14 @@ std::uint16_t GuestEndian(std::uint16_t value) noexcept {
 }
 } // namespace
 
-WiiUMemory::WiiUMemory()
-    : fcram_(static_cast<std::byte*>(MEMAllocFromDefaultHeapEx(
-          kFCRAMSize, static_cast<std::int32_t>(kPageSize)))) {
+WiiUMemory::WiiUMemory(bool is_new_3ds)
+    : fcram_size_(is_new_3ds ? kNewFCRAMSize : kFCRAMSize),
+      fcram_(static_cast<std::byte*>(MEMAllocFromDefaultHeapEx(
+          fcram_size_, static_cast<std::int32_t>(kPageSize)))) {
     if (fcram_ == nullptr) {
         throw std::bad_alloc{};
     }
-    std::memset(fcram_, 0, kFCRAMSize);
+    std::memset(fcram_, 0, fcram_size_);
 }
 
 WiiUMemory::~WiiUMemory() noexcept {
@@ -91,11 +93,11 @@ std::uint32_t WiiUMemory::FindFreeRange(std::uint32_t size) const {
         if (size <= start - address) return address;
         address = start + length;
     }
-    return size <= kVirtualBase + kFCRAMSize - address ? address : 0;
+    return size <= GetVirtualEnd() - address ? address : 0;
 }
 
 bool WiiUMemory::ReserveDynamicRange(std::uint32_t address, std::uint32_t size) {
-    constexpr auto end = kVirtualBase + kFCRAMSize;
+    const auto end = GetVirtualEnd();
     if (size == 0 || ((address | size) & (kPageSize - 1u)) != 0 ||
         address < image_end_ || address > end || size > end - address) return false;
     for (const auto& [start, length] : dynamic_ranges_)
@@ -110,13 +112,13 @@ bool WiiUMemory::ReleaseDynamicRange(std::uint32_t address, std::uint32_t size) 
     return true;
 }
 
-std::size_t WiiUMemory::Offset(std::uint32_t addr, std::size_t width) {
+std::size_t WiiUMemory::Offset(std::uint32_t addr, std::size_t width) const {
     if (addr < kVirtualBase) {
         throw std::out_of_range("3DS address below FCRAM virtual window");
     }
     const auto offset = static_cast<std::size_t>(addr - kVirtualBase);
     // Check by subtraction so a wrapping guest address cannot pass the bounds.
-    if (offset > kFCRAMSize || width > kFCRAMSize - offset) {
+    if (offset > fcram_size_ || width > fcram_size_ - offset) {
         throw std::out_of_range("3DS access outside FCRAM virtual window");
     }
     return offset;
@@ -125,7 +127,7 @@ std::size_t WiiUMemory::Offset(std::uint32_t addr, std::size_t width) {
 std::uint32_t WiiUMemory::Read32(std::uint32_t addr) const {
     if (addr >= hle::HLEServiceManager::kAudioMMIOBase && addr < hle::HLEServiceManager::kAudioMMIOEnd)
         return hle::HLEServiceManager::ReadAudioMMIO(addr, 4, audio_);
-    if (addr >= HIDManager::kBase && addr < HIDManager::kEnd) {
+    if (HIDManager::IsMappedAddress(addr)) {
         if (hid_ == nullptr) throw std::logic_error("HID MMIO bridge is not attached");
         return hid_->ReadRegister(addr);
     }
@@ -137,6 +139,10 @@ std::uint32_t WiiUMemory::Read32(std::uint32_t addr) const {
 }
 
 std::uint8_t WiiUMemory::Read8(std::uint32_t addr) const {
+    if (HIDManager::IsMappedAddress(addr)) {
+        if (hid_ == nullptr) throw std::logic_error("HID bridge is not attached");
+        return static_cast<std::uint8_t>(hid_->ReadRegister(addr, 1));
+    }
     return std::to_integer<std::uint8_t>(fcram_[Offset(addr, 1)]);
 }
 void WiiUMemory::Write8(std::uint32_t addr, std::uint8_t value) {
@@ -166,7 +172,7 @@ void WiiUMemory::Write32(std::uint32_t addr, std::uint32_t val) {
 std::uint16_t WiiUMemory::Read16(std::uint32_t addr) const {
     if (addr >= hle::HLEServiceManager::kAudioMMIOBase && addr < hle::HLEServiceManager::kAudioMMIOEnd)
         return static_cast<std::uint16_t>(hle::HLEServiceManager::ReadAudioMMIO(addr, 2, audio_));
-    if (addr >= HIDManager::kBase && addr < HIDManager::kEnd) {
+    if (HIDManager::IsMappedAddress(addr)) {
         if (hid_ == nullptr) throw std::logic_error("HID MMIO bridge is not attached");
         return static_cast<std::uint16_t>(hid_->ReadRegister(addr, 2));
     }

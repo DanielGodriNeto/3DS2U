@@ -28,7 +28,7 @@ void Put(std::vector<std::uint8_t>& b, U32 at, U32 value) {
     for (unsigned i = 0; i < 4; ++i) b[at + i] = static_cast<std::uint8_t>(value >> (8u * i));
 }
 U32 Page(U32 n) {
-    if (n > WiiUMemory::kFCRAMSize) Fail("CRO image too large");
+    if (n > WiiUMemory::kNewFCRAMSize) Fail("CRO image too large");
     return (n + 0xFFFu) & ~0xFFFu;
 }
 struct Table { U32 offset{}, count{}, width{}; };
@@ -40,7 +40,7 @@ struct Parser {
         Range(bytes, 0, 0x138);
         for (U32 i = 0; i < h.size(); ++i) h[i] = Word(bytes, 0x80u + i * 4u);
         if (h[0] != 0x304F5243u) Fail("Expected CRO0 magic at offset 0x80");
-        if (h[4] < 0x138 || h[4] > bytes.size() || h[4] > WiiUMemory::kFCRAMSize)
+        if (h[4] < 0x138 || h[4] > bytes.size() || h[4] > WiiUMemory::kNewFCRAMSize)
             Fail("Invalid CRO file size");
         bytes = bytes.first(h[4]);
         if (h[2] != 0 || h[3] != 0 || h[7] != 0) Fail("CRO is already linked or invalid");
@@ -165,7 +165,7 @@ bool CROLoader::FindSymbol(const std::string& name, U32& address) const {
 bool CROLoader::LoadModule(WiiUMemory& memory, const std::uint8_t* data, std::size_t size,
                            U32 base, CROModule& out) {
     try {
-        if (data == nullptr || size > WiiUMemory::kFCRAMSize ||
+        if (data == nullptr || size > memory.GetSize() ||
             (memory_ != nullptr && memory_ != &memory)) Fail("Invalid CRO input or memory owner");
         const Parser p(Bytes(data, size));
         CROModule module;
@@ -176,11 +176,11 @@ bool CROLoader::LoadModule(WiiUMemory& memory, const std::uint8_t* data, std::si
             if (loaded.name == module.name) Fail("CRO module already loaded");
         }
         const auto bss_start = Page(p.h[4]);
-        if (p.h[5] > WiiUMemory::kFCRAMSize - bss_start) Fail("CRO BSS too large");
+        if (p.h[5] > memory.GetSize() - bss_start) Fail("CRO BSS too large");
         module.mapped_size = Page(bss_start + p.h[5]);
         if ((base & 0xFFFu) != 0 || base < memory.GetImageEnd() ||
-            base > WiiUMemory::kVirtualBase + WiiUMemory::kFCRAMSize ||
-            module.mapped_size > WiiUMemory::kVirtualBase + WiiUMemory::kFCRAMSize - base)
+            base > memory.GetVirtualEnd() ||
+            module.mapped_size > memory.GetVirtualEnd() - base)
             Fail("CRO mapping outside free FCRAM");
         U32 bss_used = 0;
         for (U32 i = 0; i < p.h[19]; ++i) {

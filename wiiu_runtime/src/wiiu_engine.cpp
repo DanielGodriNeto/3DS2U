@@ -7,7 +7,8 @@
 
 namespace wiiu {
 
-WiiUEngine::WiiUEngine() : svc_handler_(memory, RunWorkerBlock, this) {
+WiiUEngine::WiiUEngine(bool is_new_3ds)
+    : hid_manager(is_new_3ds), memory(is_new_3ds), svc_handler_(memory, RunWorkerBlock, this) {
     OSInitMutex(&execution_mutex_);
     memory.SetHIDManager(hid_manager);
     memory.SetAudioDriver(&audio_);
@@ -49,7 +50,10 @@ bool WiiUEngine::DispatchOne(arm11::CPUContext& context) {
 
 void WiiUEngine::Run(std::uint32_t entry_point) {
     execution_started_ = true;
-    hid_manager.Update();
+    OSLockMutex(&execution_mutex_);
+    try { hid_manager.Update(); }
+    catch (...) { OSUnlockMutex(&execution_mutex_); throw; }
+    OSUnlockMutex(&execution_mutex_);
     audio_.Pump();
     if ((entry_point & 1u) != 0) cpu.BranchExchange(entry_point);
     else cpu.r[15] = entry_point;

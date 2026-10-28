@@ -34,27 +34,38 @@ inline BOOL OSWaitEventWithTimeout(OSEvent* event, OSTime timeout) {
 }
 using OSThreadEntryPointFn = int (*)(int, const char**);
 using OSThreadAttributes = std::uint32_t;
-enum { OS_THREAD_ATTRIB_AFFINITY_CPU0 = 1, OS_THREAD_ATTRIB_AFFINITY_CPU1 = 2, OS_THREAD_ATTRIB_AFFINITY_ANY = 7 };
+enum { OS_THREAD_ATTRIB_AFFINITY_CPU0 = 1, OS_THREAD_ATTRIB_AFFINITY_CPU1 = 2,
+    OS_THREAD_ATTRIB_AFFINITY_CPU2 = 4, OS_THREAD_ATTRIB_AFFINITY_ANY = 7 };
 struct OSThread {
     std::thread native;
     OSThreadEntryPointFn entry{};
     int argc{};
+    std::uint32_t affinity{};
     const char** argv{};
 };
 namespace svc_test_platform {
 inline std::atomic<unsigned> created{}, resumed{}, exited{};
 inline std::int32_t priority{};
 inline bool stack_aligned{}, fail_create{};
+inline std::uint32_t affinity{};
+inline bool fail_affinity{};
+inline unsigned affinity_calls{};
 struct Exit {};
 }
 inline BOOL OSCreateThread(OSThread* thread, OSThreadEntryPointFn entry, std::int32_t argc,
                            char* argv, void* stack, std::uint32_t size, std::int32_t priority,
-                           OSThreadAttributes) {
+                           OSThreadAttributes affinity) {
     svc_test_platform::stack_aligned = reinterpret_cast<std::uintptr_t>(stack) % 16 == 0 && size % 16 == 0;
     svc_test_platform::priority = priority;
     if (svc_test_platform::fail_create) return FALSE;
+    thread->affinity = affinity; svc_test_platform::affinity = affinity;
     thread->entry = entry; thread->argc = argc; thread->argv = reinterpret_cast<const char**>(argv);
     ++svc_test_platform::created; return TRUE;
+}
+inline BOOL OSSetThreadAffinity(OSThread* thread, std::uint32_t affinity) {
+    ++svc_test_platform::affinity_calls;
+    if (svc_test_platform::fail_affinity) return FALSE;
+    thread->affinity = affinity; svc_test_platform::affinity = affinity; return TRUE;
 }
 inline std::int32_t OSResumeThread(OSThread* thread) {
     ++svc_test_platform::resumed;

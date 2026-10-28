@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <exception>
 #include <stdexcept>
+#include <string_view>
 
 // Defined by the translated source linked into this RPX.
 void InitDispatcher(wiiu::WiiUEngine& engine);
@@ -38,9 +39,12 @@ std::uint32_t ReleaseGraphics(void* context) {
 } // namespace
 
 int main(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    bool is_new_3ds = false;
+    for (int i = 1; i < argc; ++i)
+        if (argv[i] && std::string_view(argv[i]) == "--new-3ds") is_new_3ds = true;
     WHBProcInit();
+    if (!OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU1))
+        OSReport("[3DS2U] Could not pin rendering thread to Core 1\n");
     const bool log_registered = WHBAddLogHandler(ConsoleLog) != FALSE;
 
     wiiu::gx2::GX2Manager gx2;
@@ -64,8 +68,8 @@ int main(int argc, char** argv) {
         wiiu::DisplayTransfer display(gx2);
         wiiu::GSPGPU gsp_gpu(pica200, display);
         services.AttachGSPGPU(gsp_gpu);
-        // The engine owns CPUContext and the sole 128 MiB WiiUMemory instance.
-        wiiu::WiiUEngine engine;
+        // The engine owns the selected O3DS/N3DS memory and input model.
+        wiiu::WiiUEngine engine(is_new_3ds);
         // Engine shutdown joins guest workers before releasing AX and its DMA snapshots.
         auto& audio = engine.GetAudioDriver();
         if (!audio.Initialize()) throw std::runtime_error("AX initialization failed");

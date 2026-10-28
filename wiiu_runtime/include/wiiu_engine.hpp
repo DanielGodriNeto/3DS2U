@@ -14,7 +14,7 @@ namespace wiiu {
 
 class WiiUEngine {
 public:
-    WiiUEngine();
+    explicit WiiUEngine(bool is_new_3ds = false);
     ~WiiUEngine();
     using BlockFunction = void (*)(arm11::CPUContext&, WiiUMemory&);
 
@@ -25,6 +25,7 @@ public:
     [[nodiscard]] arm11::CPUContext& GetCPU() noexcept { return cpu; }
     [[nodiscard]] WiiUMemory& GetMemory() noexcept { return memory; }
     [[nodiscard]] AudioDriver& GetAudioDriver() noexcept { return audio_; }
+    [[nodiscard]] HIDManager& GetHIDManager() noexcept { return hid_manager; }
     [[nodiscard]] bool IsHalted() const noexcept { return halted_; }
 
     // Each block must assign the next guest PC to cpu.r[15] before returning.
