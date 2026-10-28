@@ -34,6 +34,7 @@ Wii U/Cemu: block dispatcher + memory + GX2 + VPAD + HLE
 | Textures | 8×8 Morton deswizzling for RGBA8/RGB565/RGBA4444, linear RGBA8 GX2 upload, UV/color-modulated sampling on texture unit 0 |
 | Input | VPAD buttons mapped to 3DS masks; calibrated touch scaled to 320×240; custom readable HID registers |
 | HLE | srv/apt initialization and loop placeholders; CSND/DSP success and readiness stubs; audio MMIO no-op writes |
+| RomFS / FS | Validated memory-backed Level-3 reader, Unicode paths, read-only file handles and explicit fs:USER/file IPC handlers |
 | Dispatch | ARM/Thumb-aware block lookup, mode exchange, bounded execution slices and yield after draw commands |
 
 The graphics path does **not** translate arbitrary PICA200 shaders or command
@@ -192,7 +193,7 @@ for Wii U platform APIs; they are not a replacement for hardware validation.
 For example, to run the production audio service/memory paths on an MSVC host:
 
 ```bat
-cl /nologo /std:c++20 /EHsc /W4 /WX /I wiiu_runtime\include /I wiiu_runtime\tests\audio_platform /I wiiu_runtime\tests\stubs wiiu_runtime\tests\audio_stub_tests.cpp wiiu_runtime\src\hle_services.cpp wiiu_runtime\src\wiiu_memory.cpp wiiu_runtime\src\hid_manager.cpp /Fo:build\ /Fe:build\audio_stub_tests.exe
+cl /nologo /std:c++20 /EHsc /W4 /WX /I wiiu_runtime\include /I wiiu_runtime\tests\audio_platform /I wiiu_runtime\tests\stubs wiiu_runtime\tests\audio_stub_tests.cpp wiiu_runtime\src\hle_services.cpp wiiu_runtime\src\romfs_reader.cpp wiiu_runtime\src\wiiu_memory.cpp wiiu_runtime\src\hid_manager.cpp /Fo:build\ /Fe:build\audio_stub_tests.exe
 build\audio_stub_tests.exe
 ```
 
@@ -200,6 +201,7 @@ Additional architecture notes: [graphics bridge](docs/graphics-mvp.md),
 [GSP command buffers](docs/gsp-command-buffers.md),
 [vertex uniforms](docs/vertex-uniforms.md),
 [texture pipeline](docs/textures.md),
+[RomFS and file services](docs/romfs.md),
 [HID bridge](docs/hid-mvp.md), and [audio stubs](docs/audio-stubs.md).
 
 ## Current compatibility limits
@@ -217,3 +219,4 @@ Additional architecture notes: [graphics bridge](docs/graphics-mvp.md),
   polling protocol, and general service IPC is not implemented.
 - Execution is cooperatively sliced rather than synchronized to a complete 3DS
   interrupt, VBlank, GPU or OS scheduling model.
+
