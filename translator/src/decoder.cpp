@@ -44,7 +44,7 @@ void Decoder::PrintInstruction(const Instruction& inst) const {
     std::ostringstream line;
     line << "0x" << std::hex << std::uppercase << std::setfill('0')
          << std::setw(8) << inst.address << ": 0x"
-         << std::setw(8) << inst.opcode << '\n';
+         << std::setw(inst.state == InstructionSet::Thumb ? 4 : 8) << inst.opcode << '\n';
     std::cout << line.str();
 }
 

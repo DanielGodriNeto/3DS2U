@@ -30,9 +30,11 @@ public:
     static constexpr std::uint32_t kPageSize = 0x1000u;
 
     // Accepts uncompressed .code plus a 0x400/0x800-byte decrypted ExHeader.
-    // Without metadata the whole input is ARM .text. Failure clears all views.
+    // Without metadata the whole input is .text. Alignment defaults to ARM (4),
+    // or may be 2 for explicit Thumb/mixed ranges. Failure clears all views.
     [[nodiscard]] bool LoadFile(const std::string& filepath,
-                                const std::string& exheader_path = {});
+                                const std::string& exheader_path = {},
+                                std::uint32_t instruction_alignment = 4);
 
     // Borrowed view: invalidated by LoadFile(), destruction, or owner assignment.
     [[nodiscard]] std::span<const std::uint8_t> GetCodeBuffer() const noexcept {
@@ -56,14 +58,14 @@ public:
     [[nodiscard]] std::span<const std::uint8_t>
     GetGuestBytes(std::uint32_t address, std::size_t size) const;
 
-    // Aligned ARM candidates from initialized .text only. ExHeader metadata
-    // cannot distinguish Thumb instructions or literal pools inside .text.
+    // Aligned candidates from initialized .text only, at the requested 2/4-byte
+    // grid. A mixed-mode decoder supplies the actual per-range instruction list.
     [[nodiscard]] std::span<const std::uint32_t> GetInstructionAddresses() const noexcept {
         return instruction_addresses_;
     }
 
 private:
-    void MapImage(std::span<const std::uint8_t> exheader);
+    void MapImage(std::span<const std::uint8_t> exheader, std::uint32_t alignment);
     std::vector<std::uint8_t> code_;
     std::array<BinarySection, 3> sections_{};
     std::vector<std::uint8_t> mapped_memory_;

@@ -8,6 +8,13 @@ namespace arm11 {
 std::string BranchTranslator::TranslateInstruction(
     const Instruction& inst, std::uint32_t current_pc) const {
     const std::uint32_t raw = inst.opcode;
+    if ((raw & 0xFE000000u) == 0xFA000000u) {
+        auto offset = raw & 0x00FFFFFFu;
+        if ((offset & 0x00800000u) != 0) offset |= 0xFF000000u;
+        const auto target = current_pc + 8u + (offset << 2) + ((raw >> 23) & 2u);
+        return "cpu.r[14] = " + std::to_string(current_pc + 4u) +
+               "u;\ncpu.BranchExchange(" + std::to_string(target | 1u) + "u);\nreturn;";
+    }
     // The emitter supplies CPSR guards; 0xF belongs to other ARM encodings.
     if ((raw >> 28) == 0xFu) {
         return "// Unhandled Branch";
@@ -34,9 +41,15 @@ std::string BranchTranslator::TranslateInstruction(
         return code.str();
     }
 
-    if (((raw >> 4) & 0x00FFFFFFu) == 0x0012FFF1u) {
+    if (((raw >> 4) & 0x00FFFFFFu) == 0x0012FFF1u ||
+        ((raw >> 4) & 0x00FFFFFFu) == 0x0012FFF3u) {
         const auto rm = raw & 0xFu;
-        return "cpu.r[15] = cpu.r[" + std::to_string(rm) + "]; return;";
+        const auto target = rm == 15 ? std::to_string(current_pc + 8u) + "u" :
+                                      "cpu.r[" + std::to_string(rm) + "]";
+        if ((raw & 0x20u) == 0) return "cpu.BranchExchange(" + target + "); return;";
+        return "{\n    const std::uint32_t target = " + target + ";\n"
+               "    cpu.r[14] = " + std::to_string(current_pc + 4u) + "u;\n"
+               "    cpu.BranchExchange(target);\n    return;\n}";
     }
 
     return "// Unhandled Branch";

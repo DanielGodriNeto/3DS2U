@@ -8,13 +8,16 @@
 
 namespace arm11 {
 
-enum class InstructionSet : std::uint8_t { ARM, Thumb };
-
-// Canonical guest address plus execution state for future ARM/Thumb interworking.
+// Canonical guest address plus execution state for ARM/Thumb interworking.
 struct CodeLocation {
     std::uint32_t address{}; // Bit 0 cleared; ARM addresses are 4-byte aligned.
     InstructionSet state{InstructionSet::ARM};
 };
+
+// The low bit tags Thumb dispatcher entries; architectural PCs remain canonical.
+[[nodiscard]] constexpr std::uint32_t DispatchKey(CodeLocation location) noexcept {
+    return location.address | (location.state == InstructionSet::Thumb ? 1u : 0u);
+}
 
 // Shared block definition, also exposed through arm11_types.hpp.
 struct BasicBlock {
@@ -31,9 +34,10 @@ struct BasicBlock {
 
 class CFGBuilder {
 public:
-    // Input must contain aligned ARM instructions in strictly increasing order.
-    // B/BL/BX and LDM-to-PC terminate blocks. Gaps and in-buffer B/BL targets start
-    // blocks. Dynamic returns are marked; other CFG edges remain deferred.
+    // Instructions must be ordered/non-overlapping within each execution state.
+    // Map keys use DispatchKey: ARM addresses are even, Thumb addresses are tagged.
+    // Strides follow Instruction::Width(); direct targets split same-mode blocks.
+    // Dynamic exchanges/returns are marked; other CFG edges remain deferred.
     // Invalid input throws std::invalid_argument.
     [[nodiscard]] std::unordered_map<std::uint32_t, BasicBlock>
     BuildBlocks(const std::vector<Instruction>& instructions) const;

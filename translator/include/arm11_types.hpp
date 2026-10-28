@@ -25,6 +25,12 @@ struct CPUContext {
 
     std::uint32_t r[16]{}; // R13 = SP, R14 = LR, R15 = PC.
     CPSR cpsr{};
+    bool thumb{}; // Execution-state bit, separate from the NZCV flag subset.
+
+    constexpr void BranchExchange(std::uint32_t target) noexcept {
+        thumb = (target & 1u) != 0;
+        r[15] = target & (thumb ? ~1u : ~3u);
+    }
 
     // Architectural masks retain the existing flag-helper interface.
     static constexpr std::uint32_t N = std::uint32_t{1} << 31;

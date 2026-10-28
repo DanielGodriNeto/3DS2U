@@ -84,8 +84,10 @@ int main() {
                 addr += 4u;
             }
             if (writeback) expected.r[13] = up ? base + bytes : base - bytes;
+            if (load && (list & 0x8000u) != 0) expected.BranchExchange(expected.r[15]);
             test.run(cpu, memory);
             for (unsigned r = 0; r < 16; ++r) Check(cpu.r[r] == expected.r[r]);
+            Check(cpu.thumb == expected.thumb);
             for (unsigned i = 0; i < expected_memory.size(); ++i) {
                 Check(memory.Read32(base - 64u + i * 4u) == expected_memory[i]);
             }

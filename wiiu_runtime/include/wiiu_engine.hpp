@@ -12,6 +12,7 @@ class WiiUEngine {
 public:
     using BlockFunction = void (*)(arm11::CPUContext&, WiiUMemory&);
 
+    // Low-bit-tagged addresses select Thumb; canonical even keys select ARM.
     // Replaces an existing entry; null callbacks throw std::invalid_argument.
     void RegisterBlock(std::uint32_t address, BlockFunction block_func);
 
@@ -20,6 +21,7 @@ public:
     [[nodiscard]] bool IsHalted() const noexcept { return halted_; }
 
     // Each block must assign the next guest PC to cpu.r[15] before returning.
+    // An odd entry selects Thumb; a canonical even entry preserves current mode.
     // Yields after a bounded block slice so input, ProcUI, and rendering can run.
     // This is cooperative scheduling, not guest VBlank or OS-trap emulation.
     void Run(std::uint32_t entry_point);

@@ -6,10 +6,16 @@
 
 namespace arm11 {
 
-// Raw ARM-state instruction; operand and control-flow decoding come later.
+enum class InstructionSet : std::uint8_t { ARM, Thumb };
+
+// Raw instruction plus execution state; Thumb opcodes occupy the low 16 bits.
 struct Instruction {
     std::uint32_t opcode{};
-    std::uint32_t address{}; // Instruction address, not the ARM PC operand (+8).
+    std::uint32_t address{}; // Canonical instruction address, before pipeline bias.
+    InstructionSet state{InstructionSet::ARM};
+    [[nodiscard]] constexpr std::uint32_t Width() const noexcept {
+        return state == InstructionSet::Thumb ? 2u : 4u;
+    }
 };
 
 class Decoder {

@@ -4,6 +4,7 @@
 #include "branch_translator.hpp"
 #include "cond_evaluator.hpp"
 #include "mem_translator.hpp"
+#include "thumb_decoder.hpp"
 
 #include <algorithm>
 #include <exception>
@@ -11,6 +12,7 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <vector>
 
 namespace arm11 {
@@ -22,6 +24,11 @@ std::string HexAddress(std::uint32_t address) {
     text << std::hex << std::uppercase << std::setfill('0') << std::setw(8)
          << address;
     return text.str();
+}
+
+std::string BlockName(const BasicBlock& block) {
+    return std::string{block.start.state == InstructionSet::Thumb ? "thumb_block_" : "block_"} +
+           HexAddress(block.start_address);
 }
 
 // Keep every statement of a translated instruction under the same condition.
@@ -50,7 +57,7 @@ bool CppEmitter::EmitTranslatedFile(
         std::vector<std::uint32_t> addresses;
         addresses.reserve(cfg.size());
         for (const auto& [address, block] : cfg) {
-            if (address != block.start_address) {
+            if (address != DispatchKey({block.start_address, block.start.state})) {
                 std::cerr << "CppEmitter: CFG key differs from block start address\n";
                 return false;
             }
@@ -72,8 +79,10 @@ bool CppEmitter::EmitTranslatedFile(
         ALUTranslator alu;
         MemoryTranslator memory;
         BranchTranslator branch;
+        ThumbTranslator thumb;
         for (const auto address : addresses) {
-            output << "void block_" << HexAddress(address)
+            const auto& block = cfg.at(address);
+            output << "void " << BlockName(block)
                    << "(arm11::CPUContext& cpu, wiiu::WiiUMemory& memory) {\n"
                       "    (void)cpu;\n"
                       "    (void)memory;\n";
@@ -81,12 +90,27 @@ bool CppEmitter::EmitTranslatedFile(
             const auto& instructions = cfg.at(address).instructions;
             bool terminates = false;
             for (const auto& inst : instructions) {
+                if (inst.state != block.start.state) throw std::invalid_argument("Mixed modes inside a basic block");
+                if (inst.state == InstructionSet::Thumb) {
+                    const auto translated = thumb.TranslateInstruction(inst);
+                    if (translated == "// Unhandled Thumb Instruction") {
+                        throw std::runtime_error("Unsupported T16 instruction at 0x" + HexAddress(inst.address));
+                    }
+                    EmitInstruction(output, translated, "");
+                    if (ThumbTranslator::IsTerminator(inst.opcode) &&
+                        !ThumbTranslator::IsConditionalBranch(inst.opcode)) {
+                        terminates = true;
+                        break;
+                    }
+                    continue;
+                }
                 const auto cond = static_cast<std::uint8_t>(inst.opcode >> 28);
-                const auto condition = ConditionEvaluator::GetConditionString(cond);
+                const bool blx_immediate = (inst.opcode & 0xFE000000u) == 0xFA000000u;
+                const auto condition = blx_immediate ? "" : ConditionEvaluator::GetConditionString(cond);
                 auto translated = branch.TranslateInstruction(inst, inst.address);
                 if (translated != "// Unhandled Branch") {
                     EmitInstruction(output, translated, condition);
-                    if (cond == 0xEu) {
+                    if (cond == 0xEu || blx_immediate) {
                         terminates = true;
                         break;
                     }
@@ -105,7 +129,7 @@ bool CppEmitter::EmitTranslatedFile(
             }
             // A block split at a branch target still needs sequential fallthrough.
             if (!terminates && !instructions.empty()) {
-                const std::uint32_t next_pc = instructions.back().address + 4u;
+                const std::uint32_t next_pc = instructions.back().address + instructions.back().Width();
                 output << "    cpu.r[15] = 0x" << HexAddress(next_pc) << "u;\n";
             }
             output << "}\n\n";
@@ -117,7 +141,12 @@ bool CppEmitter::EmitTranslatedFile(
                   "    (void)engine;\n";
         for (const auto address : addresses) {
             output << "    engine.RegisterBlock(0x" << HexAddress(address)
-                   << "u, &arm11::block_" << HexAddress(address) << ");\n";
+                   << "u, &arm11::" << BlockName(cfg.at(address)) << ");\n";
+        }
+        if (!addresses.empty()) {
+            output << "    engine.GetCPU().thumb = "
+                   << (cfg.at(addresses.front()).start.state == InstructionSet::Thumb ? "true" : "false")
+                   << ";\n";
         }
         output << "}\n";
         output.close(); // Explicit close makes final write failures observable.

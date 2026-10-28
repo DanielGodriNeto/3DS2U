@@ -37,7 +37,8 @@ std::string TranslateBlockTransfer(std::uint32_t raw) {
     for (unsigned i = 0; i < 16; ++i) {
         if ((registers & (1u << i)) == 0) continue;
         const auto reg = "cpu.r[" + std::to_string(i) + "]";
-        code += load ? "    " + reg + " = memory.Read32(addr);\n"
+        code += load ? (i == 15 ? "    const std::uint32_t target = memory.Read32(addr);\n" :
+                                 "    " + reg + " = memory.Read32(addr);\n")
                      : "    memory.Write32(addr, " + reg + ");\n";
         code += "    addr += 4u;\n";
     }
@@ -45,7 +46,7 @@ std::string TranslateBlockTransfer(std::uint32_t raw) {
         code += "    " + base_reg + " = base " + (up ? "+ " : "- ") + bytes + ";\n";
     }
     if (load && (registers & (1u << 15)) != 0) {
-        code += "    return;\n";
+        code += "    cpu.BranchExchange(target);\n    return;\n";
     }
     return code + "}";
 }

@@ -40,13 +40,13 @@ int main(int argc, char** argv) {
     Check(translate(0xEA000000u, 0xFFFFFFFCu) ==
           "cpu.r[15] = 0x4; return;");
     Check(translate(0xE12FFF1Eu, 0x08000000u) ==
-          "cpu.r[15] = cpu.r[14]; return;");
+          "cpu.BranchExchange(cpu.r[14]); return;");
     Check(translate(0xE12FFF10u, 0x08000000u) ==
-          "cpu.r[15] = cpu.r[0]; return;");
+          "cpu.BranchExchange(cpu.r[0]); return;");
     Check(translate(0x1A000000u, 0x08000000u) ==
           "cpu.r[15] = 0x8000008; return;");
     Check(translate(0x112FFF1Eu, 0x08000000u) ==
-          "cpu.r[15] = cpu.r[14]; return;");
+          "cpu.BranchExchange(cpu.r[14]); return;");
     Check(translate(0xEB000001u, 0x08000000u) ==
           "cpu.r[14] = 0x8000004;\ncpu.r[15] = 0x800000C;\nreturn;");
     Check(translate(0xEBFFFFFEu, 0x08000000u) ==
@@ -57,7 +57,7 @@ int main(int argc, char** argv) {
           "cpu.r[14] = 0x8000004;\ncpu.r[15] = 0xA000004;\nreturn;");
     Check(translate(0xEB000000u, 0xFFFFFFFCu) ==
           "cpu.r[14] = 0x0;\ncpu.r[15] = 0x4;\nreturn;");
-    for (const auto opcode : {0xFA000000u, 0xFB000000u, 0xE12FFF3Eu, 0xE0810002u}) {
+    for (const auto opcode : {0xEF000000u, 0xE0810002u}) {
         Check(translate(opcode, 0x08000000u) == "// Unhandled Branch");
     }
 
@@ -82,7 +82,7 @@ int main(int argc, char** argv) {
                              std::istreambuf_iterator<char>()};
     for (const auto* expected : {
              "cpu.r[15] = 0x8000008; return;",
-             "cpu.r[15] = cpu.r[14]; return;",
+             "cpu.BranchExchange(cpu.r[14]); return;",
              "cpu.r[15] = 0x08000008u;",
              "engine.RegisterBlock(0x08000008u, &arm11::block_08000008);"}) {
         Check(source.find(expected) != std::string::npos);

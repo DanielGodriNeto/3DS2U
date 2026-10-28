@@ -54,7 +54,8 @@ std::uint32_t PageSize(std::uint64_t size) {
 
 } // namespace
 
-bool BinaryLoader::LoadFile(const std::string& filepath, const std::string& exheader_path) {
+bool BinaryLoader::LoadFile(const std::string& filepath, const std::string& exheader_path,
+                            std::uint32_t instruction_alignment) {
     *this = BinaryLoader{};
     try {
         BinaryLoader image;
@@ -66,7 +67,7 @@ bool BinaryLoader::LoadFile(const std::string& filepath, const std::string& exhe
                 throw std::runtime_error("Decrypted ExHeader must be 0x400 or 0x800 bytes");
             }
         }
-        image.MapImage(exheader);
+        image.MapImage(exheader, instruction_alignment);
         image.loaded_ = true;
         *this = std::move(image);
         return true;
@@ -76,7 +77,8 @@ bool BinaryLoader::LoadFile(const std::string& filepath, const std::string& exhe
     }
 }
 
-void BinaryLoader::MapImage(std::span<const std::uint8_t> exheader) {
+void BinaryLoader::MapImage(std::span<const std::uint8_t> exheader, std::uint32_t alignment) {
+    if (alignment != 2 && alignment != 4) throw std::invalid_argument("Instruction alignment must be 2 or 4");
     if (code_.size() >= 4 &&
         ((code_[0] == 0x7F && code_[1] == 'E' && code_[2] == 'L' && code_[3] == 'F') ||
          (code_[0] == '3' && code_[1] == 'D' && code_[2] == 'S' && code_[3] == 'X'))) {
@@ -115,8 +117,8 @@ void BinaryLoader::MapImage(std::span<const std::uint8_t> exheader) {
         sections_[0].mapped_size = PageSize(code_.size());
     }
 
-    if ((sections_[0].virtual_address & 3u) != 0 || (sections_[0].size & 3u) != 0) {
-        throw std::runtime_error("ARM .text address and initialized size must be 4-byte aligned");
+    if (sections_[0].virtual_address % alignment != 0 || sections_[0].size % alignment != 0) {
+        throw std::runtime_error("Text address/size disagrees with the requested instruction alignment");
     }
     entry_point_ = sections_[0].virtual_address; // NCCH starts at .text, not an ELF entry offset.
 
@@ -169,8 +171,8 @@ void BinaryLoader::MapImage(std::span<const std::uint8_t> exheader) {
                         mapped_memory_.begin() + section.fcram_offset);
         }
     }
-    instruction_addresses_.reserve(sections_[0].size / 4);
-    for (std::uint32_t offset = 0; offset < sections_[0].size; offset += 4) {
+    instruction_addresses_.reserve(sections_[0].size / alignment);
+    for (std::uint32_t offset = 0; offset < sections_[0].size; offset += alignment) {
         instruction_addresses_.push_back(entry_point_ + offset);
     }
 }

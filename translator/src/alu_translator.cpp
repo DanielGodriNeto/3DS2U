@@ -58,8 +58,10 @@ std::string ALUTranslator::TranslateInstruction(const Instruction& inst) const {
                 "    cpu.cpsr.V = ((~(" + lhs + " ^ " + rhs + ") & (" + lhs +
                 " ^ temp)) >> 31) != 0;\n";
     } else if (sub || cmp) {
-        code += "    cpu.cpsr.C = (" + lhs + " >= " + rhs + ");\n"
-                "    cpu.cpsr.V = (((" + lhs + " ^ " + rhs + ") & (" + lhs +
+        // Subtracting immediate zero never borrows; avoid an unsigned >= 0 warning.
+        code += "    cpu.cpsr.C = " + (immediate && immediate_value == 0 ?
+                 std::string{"true"} : "(" + lhs + " >= " + rhs + ")") + ";\n";
+        code += "    cpu.cpsr.V = (((" + lhs + " ^ " + rhs + ") & (" + lhs +
                 " ^ temp)) >> 31) != 0;\n";
     } else if (immediate && rotation != 0) {
         // Logical modified immediates carry out the rotated immediate's top bit.

@@ -74,7 +74,7 @@ int main(int argc, char** argv) {
              "    if (!cpu.cpsr.Z) {\n        cpu.r[3] = cpu.r[2] + cpu.r[4];\n    }",
              "    if (cpu.cpsr.Z) {\n        cpu.r[15] = 0x8000008; return;\n    }\n"
              "    cpu.r[15] = 0x0800000Cu;",
-             "    if (!cpu.cpsr.Z) {\n        cpu.r[15] = cpu.r[14]; return;\n    }\n"
+             "    if (!cpu.cpsr.Z) {\n        cpu.BranchExchange(cpu.r[14]); return;\n    }\n"
              "    cpu.r[15] = 0x08000010u;",
              "    cpu.r[5] = cpu.r[6];\n    cpu.r[15] = 0x08000014u;"}) {
         Check(source.find(fragment) != std::string::npos);

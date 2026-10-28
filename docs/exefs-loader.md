@@ -21,10 +21,11 @@ in `BinarySection`. Guest addresses can have gaps and are not relocated. BSS sta
 immediately after initialized `.data`; BSS and page tails are zero initialized.
 `GetGuestBytes` resolves a guest address through these descriptors.
 
-Only initialized `.text` is passed to the ARM decoder and CFG builder. The exposed
-instruction addresses are aligned ARM candidates, not proof that a word is an ARM
-instruction. Mixed Thumb/ARM code, literal-pool identification, and reachable-code
-analysis require additional metadata/analysis.
+Only initialized `.text` is passed to the selected decoder and CFG builder. The
+exposed addresses are alignment candidates, not proof that bytes are instructions.
+Explicit Thumb/mixed-mode ranges are supported as described in
+[Thumb support](thumb-support.md). Automatic mode inference, literal-pool
+identification, and reachable-code analysis require additional metadata/analysis.
 
 The mapped image is currently PC-side state. Emitting initialized data into the
 Wii U runtime and supporting guest mappings outside its current fixed window are
