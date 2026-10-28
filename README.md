@@ -28,6 +28,7 @@ Wii U/Cemu: block dispatcher + memory + GX2 + VPAD + HLE
 | ARM32 | Selected ALU operations, CPSR NZCV and conditional execution, B/BL/BX/BLX, immediate word LDR/STR, LDM/STM |
 | Thumb-16 | Immediate arithmetic, register ALU operations, word load/store, PUSH/POP, branches, explicit mode ranges |
 | VFP / T32 | Scalar single/double VFPv2 math, conversions, transfers and FPSCR; mixed T16/T32 fetch, wide calls, selected wide ALU and byte/word memory forms |
+| CRO modules | Checked CRO0 segment mapping, named/indexed imports, ARM/Thumb relocations, shared heap reservations and explicit RO HLE helpers; execution requires pretranslated blocks |
 | Loader | Uncompressed ExeFS `.code` plus separate decrypted ExHeader; text/rodata/data and BSS mapping; raw instruction fixtures |
 | Memory | 128 MiB FCRAM buffer aligned to 4 KiB; bounded accesses; guest little-endian data swapped on big-endian PPC |
 | Graphics | MVP PICA200-to-GX2 bridge: clear color, vertex buffer, stride/count, triangle draws; float24 uniforms, default matrix vertex shader and color pixel shader |
@@ -195,7 +196,7 @@ for Wii U platform APIs; they are not a replacement for hardware validation.
 For example, to run the production audio service/memory paths on an MSVC host:
 
 ```bat
-cl /nologo /std:c++20 /EHsc /W4 /WX /I wiiu_runtime\include /I wiiu_runtime\tests\audio_platform /I wiiu_runtime\tests\stubs wiiu_runtime\tests\audio_stub_tests.cpp wiiu_runtime\src\hle_services.cpp wiiu_runtime\src\romfs_reader.cpp wiiu_runtime\src\wiiu_memory.cpp wiiu_runtime\src\hid_manager.cpp /Fo:build\ /Fe:build\audio_stub_tests.exe
+cl /nologo /std:c++20 /EHsc /W4 /WX /I wiiu_runtime\include /I wiiu_runtime\tests\audio_platform /I wiiu_runtime\tests\stubs wiiu_runtime\tests\audio_stub_tests.cpp wiiu_runtime\src\hle_services.cpp wiiu_runtime\src\cro_loader.cpp wiiu_runtime\src\romfs_reader.cpp wiiu_runtime\src\wiiu_memory.cpp wiiu_runtime\src\hid_manager.cpp /Fo:build\ /Fe:build\audio_stub_tests.exe
 build\audio_stub_tests.exe
 ```
 
@@ -206,6 +207,7 @@ Additional architecture notes: [graphics bridge](docs/graphics-mvp.md),
 [RomFS and file services](docs/romfs.md),
 [SVC runtime](docs/svc-runtime.md),
 [VFP and T32](docs/vfp-thumb32.md),
+[CRO modules and RO HLE](docs/cro-modules.md),
 [HID bridge](docs/hid-mvp.md), and [audio stubs](docs/audio-stubs.md).
 
 ## Current compatibility limits

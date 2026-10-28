@@ -76,6 +76,13 @@ int main() {
     Call(cpu, 1, {3, 0x08000000u, 0, 4096, 3, 0}); Check(cpu.r[0] != 0);
     Call(cpu, 1, {3, 0, 0, 0, 3, 0}); Check(cpu.r[0] != 0);
     Check(memory.Read32(first) == 0 && (large & 0xFFFu) == 0);
+    // CRO and kernel allocations share the same reservation map.
+    constexpr std::uint32_t module_range = 0x08013000u;
+    Check(memory.ReserveDynamicRange(module_range, 0x2000));
+    Call(cpu, 1, {3, module_range, 0, 4096, 3, 0}); Check(cpu.r[0] == Kernel::kOutOfResources);
+    Call(cpu, 1, {3, 0, 0, 4096, 3, 0}); Check(cpu.r[0] == 0 && cpu.r[1] == module_range + 0x2000);
+    Call(cpu, 1, {1, module_range + 0x2000, 0, 4096, 0, 0}); Check(cpu.r[0] == 0);
+    Check(memory.ReleaseDynamicRange(module_range, 0x2000));
 
     Call(cpu, 0x21, {}); Check(cpu.r[0] == 0); const auto arbiter = cpu.r[1];
     constexpr std::uint32_t address = 0x08000800u;

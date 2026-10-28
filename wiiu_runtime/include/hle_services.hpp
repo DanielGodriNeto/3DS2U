@@ -4,6 +4,7 @@
 #include <span>
 #include <unordered_map>
 #include "romfs_reader.hpp"
+#include "cro_loader.hpp"
 
 namespace wiiu { class WiiUMemory; }
 
@@ -56,7 +57,21 @@ public:
     [[nodiscard]] std::uint32_t HandleFSUserIPC(WiiUMemory& memory, std::uint32_t command_address);
     [[nodiscard]] std::uint32_t HandleFSFileIPC(WiiUMemory& memory, std::uint32_t handle,
                                               std::uint32_t command_address);
+    // Explicit RO HLE calls; service-session IPC and signature verification are deferred.
+    static constexpr std::uint32_t kROInvalidArgument = 0xD9010001u;
+    static constexpr std::uint32_t kROLoadFailed = 0xD9010002u;
+    static constexpr std::uint32_t kROOutOfResources = 0xD9010003u;
+    [[nodiscard]] std::uint32_t RO_RegisterModule(WiiUMemory& memory,
+        std::uint32_t address, std::uint32_t size);
+    [[nodiscard]] std::uint32_t RO_LoadModule(WiiUMemory& memory,
+        std::uint32_t source_address, std::uint32_t size, std::uint32_t load_address,
+        CROModule& out_module);
+    [[nodiscard]] std::uint32_t RO_UnloadModule(WiiUMemory& memory, std::uint32_t load_address);
+    [[nodiscard]] CROLoader& GetCROLoader() noexcept { return cro_loader_; }
+    [[nodiscard]] std::span<const std::uint8_t> RegisteredROHashes(std::uint32_t address) const noexcept;
 private:
+    CROLoader cro_loader_;
+    std::map<std::uint32_t, std::vector<std::uint8_t>> ro_hashes_;
     RomFSReader* romfs_{};
     std::unordered_map<std::uint32_t, RomFSFileHandle> fs_handles_;
     std::uint32_t next_fs_handle_ = 0x40000000u;

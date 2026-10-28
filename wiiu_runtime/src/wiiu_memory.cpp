@@ -80,7 +80,34 @@ void WiiUMemory::ClearRange(std::uint32_t addr, std::size_t size) {
 
 void WiiUMemory::ReserveImageRange(std::uint32_t address, std::size_t size) {
     const auto offset = Offset(address, size);
+    if (!dynamic_ranges_.empty()) throw std::logic_error("Reserve images before dynamic allocations");
     image_end_ = std::max(image_end_, kVirtualBase + static_cast<std::uint32_t>(offset + size));
+}
+
+std::uint32_t WiiUMemory::FindFreeRange(std::uint32_t size) const {
+    if (size == 0 || (size & (kPageSize - 1u)) != 0) return 0;
+    auto address = (image_end_ + kPageSize - 1u) & ~(kPageSize - 1u);
+    for (const auto& [start, length] : dynamic_ranges_) {
+        if (size <= start - address) return address;
+        address = start + length;
+    }
+    return size <= kVirtualBase + kFCRAMSize - address ? address : 0;
+}
+
+bool WiiUMemory::ReserveDynamicRange(std::uint32_t address, std::uint32_t size) {
+    constexpr auto end = kVirtualBase + kFCRAMSize;
+    if (size == 0 || ((address | size) & (kPageSize - 1u)) != 0 ||
+        address < image_end_ || address > end || size > end - address) return false;
+    for (const auto& [start, length] : dynamic_ranges_)
+        if (address < start + length && start < address + size) return false;
+    return dynamic_ranges_.emplace(address, size).second;
+}
+
+bool WiiUMemory::ReleaseDynamicRange(std::uint32_t address, std::uint32_t size) noexcept {
+    const auto it = dynamic_ranges_.find(address);
+    if (it == dynamic_ranges_.end() || it->second != size) return false;
+    dynamic_ranges_.erase(it);
+    return true;
 }
 
 std::size_t WiiUMemory::Offset(std::uint32_t addr, std::size_t width) {

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <map>
 
 namespace wiiu {
 
@@ -43,6 +44,10 @@ public:
     // Register image/BSS ranges before execution so the heap cannot overwrite them.
     void ReserveImageRange(std::uint32_t address, std::size_t size);
     [[nodiscard]] std::uint32_t GetImageEnd() const noexcept { return image_end_; }
+    // Call under the engine execution lock, shared by CRO loading and SVC heaps.
+    [[nodiscard]] std::uint32_t FindFreeRange(std::uint32_t size) const;
+    bool ReserveDynamicRange(std::uint32_t address, std::uint32_t size);
+    bool ReleaseDynamicRange(std::uint32_t address, std::uint32_t size) noexcept;
     void SetGPUAccessAllowed(bool allowed) noexcept { gpu_access_allowed_ = allowed; }
 
     // FCRAM word/halfword accesses swap guest LE bytes to/from native PPC values.
@@ -64,6 +69,7 @@ private:
     bool frame_requested_{};
     std::uint32_t image_end_ = kVirtualBase + kPageSize;
     bool gpu_access_allowed_ = true;
+    std::map<std::uint32_t, std::uint32_t> dynamic_ranges_;
 };
 
 } // namespace wiiu

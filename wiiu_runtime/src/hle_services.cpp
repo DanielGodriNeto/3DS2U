@@ -11,6 +11,58 @@
 #include <new>
 
 namespace wiiu::hle {
+
+std::span<const std::uint8_t> HLEServiceManager::RegisteredROHashes(std::uint32_t address) const noexcept {
+    const auto it = ro_hashes_.find(address);
+    return it == ro_hashes_.end() ? std::span<const std::uint8_t>{} : it->second;
+}
+
+std::uint32_t HLEServiceManager::RO_RegisterModule(WiiUMemory& memory,
+    std::uint32_t address, std::uint32_t size) {
+    try {
+        if (size < 0x80 || size > 4u * 1024u * 1024u || ro_hashes_.size() >= 32)
+            return kROInvalidArgument;
+        (void)memory.GetPointer(address, size);
+        std::uint32_t offset{}, count{};
+        if (memory.Read32(address) == 0x30525243u) {
+            if (size < 0x360 || memory.Read32(address + 8) != 0 || memory.Read32(address + 12) != 0 ||
+                memory.Read32(address + 0x344) != size) return kROInvalidArgument;
+            offset = memory.Read32(address + 0x350);
+            count = memory.Read32(address + 0x354);
+            if (offset < 0x360 || offset > size || count == 0 || count > (size - offset) / 32u)
+                return kROInvalidArgument;
+        } else if (size >= 0x138 && memory.Read32(address + 0x80) == 0x304F5243u) {
+            offset = 0; count = 4;
+        } else return kROInvalidArgument;
+        const auto* first = static_cast<const std::uint8_t*>(memory.GetPointer(address + offset, count * 32u));
+        std::vector<std::uint8_t> hashes(first, first + count * 32u);
+        ro_hashes_.insert_or_assign(address, std::move(hashes));
+        OSReport("[3DS2U RO] Registered hash metadata (verification deferred)\n");
+        return 0;
+    } catch (const std::bad_alloc&) { return kROOutOfResources; }
+      catch (const std::exception&) { return kROInvalidArgument; }
+}
+
+std::uint32_t HLEServiceManager::RO_LoadModule(WiiUMemory& memory,
+    std::uint32_t source, std::uint32_t size, std::uint32_t destination, CROModule& out) {
+    try {
+        if (size < 0x138 || size > WiiUMemory::kFCRAMSize) return kROInvalidArgument;
+        const auto* bytes = static_cast<const std::uint8_t*>(memory.GetPointer(source, size));
+        if (!cro_loader_.LoadModule(memory, bytes, size, destination, out)) {
+            OSReport("[3DS2U RO] Load failed: %s\n", cro_loader_.LastError().c_str());
+            return kROLoadFailed;
+        }
+        OSReport("[3DS2U RO] Loaded %s at %08" PRIX32 "\n", out.name.c_str(), destination);
+        return 0;
+    } catch (const std::exception&) { return kROInvalidArgument; }
+}
+
+std::uint32_t HLEServiceManager::RO_UnloadModule(WiiUMemory& memory, std::uint32_t address) {
+    if (!cro_loader_.UnloadModule(memory, address)) return kROLoadFailed;
+    OSReport("[3DS2U RO] Unloaded module at %08" PRIX32 "\n", address);
+    return 0;
+}
+
 namespace {
 std::array<std::uint32_t, 13> ReadIPC(WiiUMemory& memory, std::uint32_t address, unsigned words) {
     if ((address & 3u) != 0) throw std::invalid_argument("Unaligned FS IPC address");

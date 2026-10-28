@@ -136,24 +136,25 @@ struct SvcHandler::Impl {
         if (operation == 1) {
             const auto it = allocations.find(requested);
             if (it == allocations.end() || it->second != rounded) return kInvalidArgument;
-            memory.ClearRange(it->first, it->second); allocations.erase(it); return 0;
+            memory.ClearRange(it->first, it->second);
+            (void)memory.ReleaseDynamicRange(it->first, it->second);
+            allocations.erase(it); return 0;
         }
         if (cpu.r[4] == 0 || cpu.r[4] > 7) return kInvalidArgument;
         const auto floor = (memory.GetImageEnd() + 0xFFFu) & ~0xFFFu;
         constexpr auto end = WiiUMemory::kVirtualBase + WiiUMemory::kFCRAMSize;
-        auto address = requested == 0 ? floor : requested;
+        auto address = requested == 0 ? memory.FindFreeRange(rounded) : requested;
+        if (requested == 0 && address == 0) return kOutOfResources;
         if ((address & 0xFFFu) != 0 || address < floor || address > end || rounded > end - address)
             return kInvalidArgument;
-        for (const auto& [start, length] : allocations) {
-            if (address + rounded <= start) break;
-            if (address < start + length) {
-                if (requested != 0) return kOutOfResources;
-                address = start + length;
-            }
-        }
         if (address > end || rounded > end - address) return kOutOfResources;
+        // Allocate bookkeeping before committing the shared memory reservation.
+        const auto [record, inserted] = allocations.emplace(address, rounded);
+        if (!inserted) return kOutOfResources;
+        if (!memory.ReserveDynamicRange(address, rounded)) {
+            allocations.erase(record); return kOutOfResources;
+        }
         memory.ClearRange(address, rounded);
-        allocations.emplace(address, rounded);
         cpu.r[1] = address;
         return 0;
     }
