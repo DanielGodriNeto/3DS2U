@@ -6,7 +6,7 @@
 #include "romfs_reader.hpp"
 #include "cro_loader.hpp"
 
-namespace wiiu { class WiiUMemory; class GSPGPU; }
+namespace wiiu { class WiiUMemory; class GSPGPU; class AudioDriver; }
 
 namespace wiiu::hle {
 
@@ -26,19 +26,26 @@ public:
     [[nodiscard]] std::uint32_t csndExit();
     [[nodiscard]] std::uint32_t dspInit();
     [[nodiscard]] std::uint32_t dspExit();
+    void AttachAudioDriver(AudioDriver& driver) noexcept { audio_driver_ = &driver; }
+    [[nodiscard]] std::uint32_t csndPlaySound(std::uint32_t channel, std::uint32_t address,
+        std::uint32_t rate, std::uint16_t format, std::uint32_t size, bool loop);
+    [[nodiscard]] std::uint32_t DSP_PlayBuffer(std::uint32_t channel, std::uint32_t address,
+        std::uint32_t rate, std::uint16_t format, std::uint32_t size, bool loop);
 
     // Nonblocking HLE helpers; these are not libctru ABI/IPC implementations.
     [[nodiscard]] static std::uint32_t dspGetSemaphoreState() noexcept { return 1; }
-    [[nodiscard]] static bool dspIsChannelReady(std::uint32_t /*channel*/) noexcept { return true; }
-    [[nodiscard]] static bool csndIsChannelPlaying(std::uint32_t /*channel*/) noexcept { return false; }
+    [[nodiscard]] bool dspIsChannelReady(std::uint32_t channel) const noexcept;
+    [[nodiscard]] bool csndIsChannelPlaying(std::uint32_t channel) const noexcept;
 
     static constexpr std::uint32_t kAudioMMIOBase = 0x1EC10000u;
     static constexpr std::uint32_t kAudioMMIOEnd = 0x1EC18000u;
     // Synthetic MVP readiness/semaphore registers; other registers read zero.
     static constexpr std::uint32_t kAudioReadyRegister = kAudioMMIOBase + 4u;
     static constexpr std::uint32_t kAudioSemaphoreRegister = kAudioMMIOBase + 8u;
-    [[nodiscard]] static std::uint32_t ReadAudioMMIO(std::uint32_t address, unsigned width);
-    static void WriteAudioMMIO(std::uint32_t address, std::uint32_t value, unsigned width);
+    [[nodiscard]] static std::uint32_t ReadAudioMMIO(std::uint32_t address, unsigned width,
+                                                   AudioDriver* driver = nullptr);
+    static void WriteAudioMMIO(std::uint32_t address, std::uint32_t value, unsigned width,
+                               AudioDriver* driver = nullptr);
 
     // MVP error results, not a complete catalog of Nintendo FS result codes.
     static constexpr std::uint32_t kFSInvalidArgument = 0xD9000001u;
@@ -73,6 +80,7 @@ public:
     [[nodiscard]] CROLoader& GetCROLoader() noexcept { return cro_loader_; }
     [[nodiscard]] std::span<const std::uint8_t> RegisteredROHashes(std::uint32_t address) const noexcept;
 private:
+    AudioDriver* audio_driver_{};
     GSPGPU* gsp_gpu_{};
     CROLoader cro_loader_;
     std::map<std::uint32_t, std::vector<std::uint8_t>> ro_hashes_;

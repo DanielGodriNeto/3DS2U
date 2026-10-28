@@ -12,6 +12,8 @@
 #include "pica200.hpp"
 #include "display_transfer.hpp"
 #include "gsp_gpu.hpp"
+#include "audio_driver.hpp"
+#include "packaged_romfs.hpp"
 
 #include <cstdint>
 #include <exception>
@@ -43,6 +45,7 @@ int main(int argc, char** argv) {
 
     wiiu::gx2::GX2Manager gx2;
     wiiu::hle::HLEServiceManager services;
+    wiiu::RomFSReader romfs;
     bool srv_initialized = false;
     bool apt_initialized = false;
     bool vpad_initialized = false;
@@ -63,9 +66,19 @@ int main(int argc, char** argv) {
         services.AttachGSPGPU(gsp_gpu);
         // The engine owns CPUContext and the sole 128 MiB WiiUMemory instance.
         wiiu::WiiUEngine engine;
+        // Engine shutdown joins guest workers before releasing AX and its DMA snapshots.
+        auto& audio = engine.GetAudioDriver();
+        if (!audio.Initialize()) throw std::runtime_error("AX initialization failed");
+        services.AttachAudioDriver(audio);
         engine.GetMemory().SetPica200(pica200);
         auto& cpu = engine.GetCPU();
         InitDispatcher(engine);
+        if (const auto assets=wiiu::GetPackagedRomFS(); !assets.empty()) {
+            if (!romfs.Mount(assets)) throw std::runtime_error("Packaged RomFS mount failed: "+romfs.GetLastError());
+            services.AttachRomFS(romfs);
+            if (services.FSUSER_Initialize()!=0) throw std::runtime_error("Packaged RomFS service initialization failed");
+            WHBLogPrintf("[3DS2U] Mounted packaged RomFS: %u bytes",static_cast<unsigned>(assets.size()));
+        }
 
         if (services.srvInit() != 0) {
             throw std::runtime_error("srvInit failed");

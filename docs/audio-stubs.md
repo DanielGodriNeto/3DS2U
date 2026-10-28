@@ -1,5 +1,9 @@
 # Audio HLE stubs
 
+This page describes the fallback when no `AudioDriver` is attached. The runtime
+now attaches [native AX audio](audio-driver.md); its explicit playback calls and
+synthetic channel registers replace silent behavior for supported submissions.
+
 `HLEServiceManager::csndInit`, `csndExit`, `dspInit`, and `dspExit` log stub
 success and return zero. No audio device, firmware, service handle, IPC session,
 DMA transfer or playback is created. Generated code must explicitly call these
@@ -7,7 +11,8 @@ helpers; arbitrary guest SVC/IPC service requests are not intercepted here.
 
 Nonblocking helper responses are `dspGetSemaphoreState() == 1`,
 `dspIsChannelReady(channel) == true`, and `csndIsChannelPlaying(channel) == false`.
-They remain constant across initialization/exit calls and do not validate channels.
+Without a driver they remain constant across initialization/exit calls. With a
+driver attached, playing/ready queries reflect its active AX voice state.
 
 The memory bridge intercepts aligned 16/32-bit accesses in
 `[0x1EC10000, 0x1EC18000)` before FCRAM address validation. Writes log a no-op

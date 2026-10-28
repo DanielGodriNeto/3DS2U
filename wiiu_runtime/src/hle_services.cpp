@@ -1,5 +1,6 @@
 #include "hle_services.hpp"
 #include "wiiu_memory.hpp"
+#include "audio_driver.hpp"
 
 #include <coreinit/debug.h>
 
@@ -219,27 +220,52 @@ std::uint32_t HLEServiceManager::HandleFSFileIPC(WiiUMemory& memory, std::uint32
 }
 
 std::uint32_t HLEServiceManager::csndInit() {
+    if (audio_driver_ != nullptr) return audio_driver_->Initialize() ? 0u : 0xD9030001u;
     OSReport("[OSConsole] [3DS2U HLE] csndInit: stub success\n");
     return 0;
 }
 
 std::uint32_t HLEServiceManager::csndExit() {
+    if (audio_driver_ != nullptr) { audio_driver_->StopAll(); OSReport("[3DS2U Audio] CSND channels stopped\n"); return 0; }
     OSReport("[OSConsole] [3DS2U HLE] csndExit: stub success\n");
     return 0;
 }
 
 std::uint32_t HLEServiceManager::dspInit() {
+    if (audio_driver_ != nullptr) return audio_driver_->Initialize() ? 0u : 0xD9030001u;
     OSReport("[OSConsole] [3DS2U HLE] dspInit: stub success\n");
     return 0;
 }
 
 std::uint32_t HLEServiceManager::dspExit() {
+    if (audio_driver_ != nullptr) { audio_driver_->StopAll(); OSReport("[3DS2U Audio] DSP channels stopped\n"); return 0; }
     OSReport("[OSConsole] [3DS2U HLE] dspExit: stub success\n");
     return 0;
 }
 
-std::uint32_t HLEServiceManager::ReadAudioMMIO(std::uint32_t address, unsigned width) {
+std::uint32_t HLEServiceManager::csndPlaySound(std::uint32_t channel, std::uint32_t address,
+    std::uint32_t rate, std::uint16_t format, std::uint32_t size, bool loop) {
+    if (audio_driver_ == nullptr) return 0xD9030002u;
+    try { audio_driver_->PlayVoice(channel, address, rate, format, size, loop); return 0; }
+    catch (const std::exception& error) {
+        OSReport("[3DS2U Audio] Playback rejected: %s\n", error.what()); return 0xD9030001u;
+    }
+}
+std::uint32_t HLEServiceManager::DSP_PlayBuffer(std::uint32_t channel, std::uint32_t address,
+    std::uint32_t rate, std::uint16_t format, std::uint32_t size, bool loop) {
+    return csndPlaySound(channel, address, rate, format, size, loop);
+}
+bool HLEServiceManager::csndIsChannelPlaying(std::uint32_t channel) const noexcept {
+    return audio_driver_ != nullptr && channel < AudioDriver::kVoiceCount && audio_driver_->IsPlaying(channel);
+}
+bool HLEServiceManager::dspIsChannelReady(std::uint32_t channel) const noexcept {
+    return audio_driver_ == nullptr || (channel < AudioDriver::kVoiceCount && !audio_driver_->IsPlaying(channel));
+}
+
+std::uint32_t HLEServiceManager::ReadAudioMMIO(std::uint32_t address, unsigned width, AudioDriver* driver) {
     ValidateAudioAccess(address, width);
+    std::uint32_t active_value{};
+    if (driver != nullptr && driver->ReadMMIO(address, width, active_value)) return active_value;
     const auto word_address = address & ~3u;
     const std::uint32_t value =
         (word_address == kAudioReadyRegister || word_address == kAudioSemaphoreRegister) ? 1u : 0u;
@@ -247,8 +273,9 @@ std::uint32_t HLEServiceManager::ReadAudioMMIO(std::uint32_t address, unsigned w
     return (value >> ((address & 3u) * 8u)) & (width == 2 ? 0xFFFFu : 0xFFFFFFFFu);
 }
 
-void HLEServiceManager::WriteAudioMMIO(std::uint32_t address, std::uint32_t value, unsigned width) {
+void HLEServiceManager::WriteAudioMMIO(std::uint32_t address, std::uint32_t value, unsigned width, AudioDriver* driver) {
     ValidateAudioAccess(address, width);
+    if (driver != nullptr && driver->WriteMMIO(address, value, width)) return;
     OSReport("[OSConsole] [3DS2U HLE] audio MMIO Write%u 0x%08" PRIX32
              " = 0x%08" PRIX32 ": stub no-op\n", width * 8u, address, value);
 }

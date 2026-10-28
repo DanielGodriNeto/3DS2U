@@ -124,7 +124,7 @@ std::size_t WiiUMemory::Offset(std::uint32_t addr, std::size_t width) {
 
 std::uint32_t WiiUMemory::Read32(std::uint32_t addr) const {
     if (addr >= hle::HLEServiceManager::kAudioMMIOBase && addr < hle::HLEServiceManager::kAudioMMIOEnd)
-        return hle::HLEServiceManager::ReadAudioMMIO(addr, 4);
+        return hle::HLEServiceManager::ReadAudioMMIO(addr, 4, audio_);
     if (addr >= HIDManager::kBase && addr < HIDManager::kEnd) {
         if (hid_ == nullptr) throw std::logic_error("HID MMIO bridge is not attached");
         return hid_->ReadRegister(addr);
@@ -145,7 +145,7 @@ void WiiUMemory::Write8(std::uint32_t addr, std::uint8_t value) {
 
 void WiiUMemory::Write32(std::uint32_t addr, std::uint32_t val) {
     if (addr >= hle::HLEServiceManager::kAudioMMIOBase && addr < hle::HLEServiceManager::kAudioMMIOEnd) {
-        hle::HLEServiceManager::WriteAudioMMIO(addr, val, 4);
+        hle::HLEServiceManager::WriteAudioMMIO(addr, val, 4, audio_);
         return;
     }
     if (addr >= Pica200::kMMIOBase && addr < Pica200::kMMIOEnd) {
@@ -165,7 +165,7 @@ void WiiUMemory::Write32(std::uint32_t addr, std::uint32_t val) {
 
 std::uint16_t WiiUMemory::Read16(std::uint32_t addr) const {
     if (addr >= hle::HLEServiceManager::kAudioMMIOBase && addr < hle::HLEServiceManager::kAudioMMIOEnd)
-        return static_cast<std::uint16_t>(hle::HLEServiceManager::ReadAudioMMIO(addr, 2));
+        return static_cast<std::uint16_t>(hle::HLEServiceManager::ReadAudioMMIO(addr, 2, audio_));
     if (addr >= HIDManager::kBase && addr < HIDManager::kEnd) {
         if (hid_ == nullptr) throw std::logic_error("HID MMIO bridge is not attached");
         return static_cast<std::uint16_t>(hid_->ReadRegister(addr, 2));
@@ -177,7 +177,7 @@ std::uint16_t WiiUMemory::Read16(std::uint32_t addr) const {
 
 void WiiUMemory::Write16(std::uint32_t addr, std::uint16_t val) {
     if (addr >= hle::HLEServiceManager::kAudioMMIOBase && addr < hle::HLEServiceManager::kAudioMMIOEnd) {
-        hle::HLEServiceManager::WriteAudioMMIO(addr, val, 2);
+        hle::HLEServiceManager::WriteAudioMMIO(addr, val, 2, audio_);
         return;
     }
     const auto offset = Offset(addr, sizeof(val));

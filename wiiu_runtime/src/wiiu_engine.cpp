@@ -10,10 +10,11 @@ namespace wiiu {
 WiiUEngine::WiiUEngine() : svc_handler_(memory, RunWorkerBlock, this) {
     OSInitMutex(&execution_mutex_);
     memory.SetHIDManager(hid_manager);
+    memory.SetAudioDriver(&audio_);
     cpu.svc_handler = &svc_handler_;
 }
 
-WiiUEngine::~WiiUEngine() { svc_handler_.Shutdown(); }
+WiiUEngine::~WiiUEngine() { svc_handler_.Shutdown(); memory.SetAudioDriver(nullptr); }
 
 void WiiUEngine::RegisterBlock(std::uint32_t address, BlockFunction block_func) {
     if (execution_started_) throw std::logic_error("Register all guest blocks before execution");
@@ -49,6 +50,7 @@ bool WiiUEngine::DispatchOne(arm11::CPUContext& context) {
 void WiiUEngine::Run(std::uint32_t entry_point) {
     execution_started_ = true;
     hid_manager.Update();
+    audio_.Pump();
     if ((entry_point & 1u) != 0) cpu.BranchExchange(entry_point);
     else cpu.r[15] = entry_point;
     halted_ = false;

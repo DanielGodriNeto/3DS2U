@@ -57,3 +57,18 @@ $(BUILD_DIR)/display_transfer_demo.o: tests/display_transfer_demo.cpp Makefile |
 	"$(ELF2RPL)" "$<" "$@"
 
 -include $(BUILD_DIR)/display_transfer_demo.d
+
+AUDIO_OBJECTS := $(filter-out $(BUILD_DIR)/main.o $(BUILD_DIR)/translated_game.o,$(OBJECTS)) $(BUILD_DIR)/audio_driver_demo.o
+.PHONY: audio-demo
+audio-demo: ../build/audio_driver_demo.rpx
+
+$(BUILD_DIR)/audio_driver_demo.o: tests/audio_driver_demo.cpp Makefile | $(BUILD_DIR)
+	"$(CXX)" $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c "$<" -o "$@"
+
+../build/audio_driver_demo.elf: $(AUDIO_OBJECTS) Makefile
+	"$(CXX)" $(AUDIO_OBJECTS) $(LDFLAGS) $(LDLIBS) -o "$@"
+
+../build/audio_driver_demo.rpx: ../build/audio_driver_demo.elf
+	"$(ELF2RPL)" "$<" "$@"
+
+-include $(BUILD_DIR)/audio_driver_demo.d

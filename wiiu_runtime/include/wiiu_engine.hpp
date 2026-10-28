@@ -4,6 +4,7 @@
 #include "wiiu_memory.hpp"
 #include "hid_manager.hpp"
 #include "svc_handler.hpp"
+#include "audio_driver.hpp"
 #include <coreinit/mutex.h>
 
 #include <cstdint>
@@ -23,6 +24,7 @@ public:
 
     [[nodiscard]] arm11::CPUContext& GetCPU() noexcept { return cpu; }
     [[nodiscard]] WiiUMemory& GetMemory() noexcept { return memory; }
+    [[nodiscard]] AudioDriver& GetAudioDriver() noexcept { return audio_; }
     [[nodiscard]] bool IsHalted() const noexcept { return halted_; }
 
     // Each block must assign the next guest PC to cpu.r[15] before returning.
@@ -37,6 +39,7 @@ private:
     arm11::CPUContext cpu{};
     HIDManager hid_manager{};
     WiiUMemory memory{};
+    AudioDriver audio_{memory};
     SvcHandler svc_handler_;
     OSMutex execution_mutex_{};
     std::unordered_map<std::uint32_t, BlockFunction> block_table;

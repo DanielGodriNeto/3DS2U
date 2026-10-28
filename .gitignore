@@ -1,6 +1,11 @@
 # PC Build and Binaries
 build/
 output_translated.cpp
+extracted.code
+extracted.exheader
+extracted.romfs
+extracted_romfs.cpp
+wiiu_runtime/src/generated_romfs.cpp
 wiiu_runtime/src/translated_game.cpp
 bin/
 *.o

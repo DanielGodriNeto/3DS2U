@@ -79,6 +79,16 @@ void Pica200::SubmitDraw(const DrawRequest& request) {
 }
 
 void Pica200::WriteMMIO(std::uint32_t address, std::uint32_t value, std::uint8_t byte_mask) {
+    // Audio is not a PICA register: direct bridge callers forward to memory's audio owner.
+    if (address >= 0x1EC10000u && address < 0x1EC18000u) {
+        if (memory_ == nullptr || (address & 3u) != 0 || byte_mask > 15 || batching_)
+            throw std::invalid_argument("Invalid direct audio bridge write");
+        if (byte_mask == 0) return;
+        std::uint32_t mask{};
+        for (unsigned i = 0; i < 4; ++i) if ((byte_mask & (1u << i)) != 0) mask |= 0xFFu << (i * 8);
+        if (byte_mask != 15) value = (memory_->Read32(address) & ~mask) | (value & mask);
+        memory_->Write32(address, value); return;
+    }
     if (address < kMMIOBase || address >= kMMIOEnd || (address & 3u) != 0)
         return; // Preserve the direct-MMIO bridge's ignored-address behavior.
     if ((byte_mask & 0xFu) == 0) return;

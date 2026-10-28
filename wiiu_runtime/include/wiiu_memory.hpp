@@ -9,6 +9,7 @@ namespace wiiu {
 
 class Pica200;
 class HIDManager;
+class AudioDriver;
 
 // Owns a page-aligned host buffer for the guest window [0x08000000, 0x10000000).
 // This is a software address mapping; it does not map guest addresses into PPC VA.
@@ -31,6 +32,8 @@ public:
     void SetPica200(Pica200& pica200) noexcept;
     // The input owner must outlive guest reads through this memory.
     void SetHIDManager(HIDManager& hid) noexcept { hid_ = &hid; }
+    // Detach before destroying the audio owner; null preserves silent stub behavior.
+    void SetAudioDriver(AudioDriver* audio) noexcept { audio_ = audio; }
     [[nodiscard]] const void* GetPointer(std::uint32_t addr, std::size_t size = 1) const;
     void LoadImage(std::uint32_t addr, std::span<const std::uint8_t> bytes);
     void ClearRange(std::uint32_t addr, std::size_t size);
@@ -66,6 +69,7 @@ private:
     std::byte* fcram_;
     Pica200* pica200_{};
     HIDManager* hid_{};
+    AudioDriver* audio_{};
     bool frame_requested_{};
     std::uint32_t image_end_ = kVirtualBase + kPageSize;
     bool gpu_access_allowed_ = true;
