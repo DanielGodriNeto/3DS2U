@@ -109,6 +109,13 @@ std::uint32_t WiiUMemory::Read32(std::uint32_t addr) const {
     return GuestEndian(value);
 }
 
+std::uint8_t WiiUMemory::Read8(std::uint32_t addr) const {
+    return std::to_integer<std::uint8_t>(fcram_[Offset(addr, 1)]);
+}
+void WiiUMemory::Write8(std::uint32_t addr, std::uint8_t value) {
+    fcram_[Offset(addr, 1)] = static_cast<std::byte>(value);
+}
+
 void WiiUMemory::Write32(std::uint32_t addr, std::uint32_t val) {
     if (addr >= hle::HLEServiceManager::kAudioMMIOBase && addr < hle::HLEServiceManager::kAudioMMIOEnd) {
         hle::HLEServiceManager::WriteAudioMMIO(addr, val, 4);

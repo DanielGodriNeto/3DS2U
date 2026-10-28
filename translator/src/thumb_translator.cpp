@@ -5,6 +5,7 @@
 
 #include <limits>
 #include <stdexcept>
+#include <bit>
 
 namespace arm11 {
 namespace {
@@ -76,18 +77,142 @@ std::vector<Instruction> ThumbTranslator::DecodeBuffer(
     }
     std::vector<Instruction> instructions;
     instructions.reserve(buffer.size() / 2);
-    for (std::size_t offset = 0; offset < buffer.size(); offset += 2) {
-        const auto op = std::uint32_t{buffer[offset]} | (std::uint32_t{buffer[offset + 1]} << 8);
-        if ((op & 0xF800u) >= 0xE800u) {
-            throw std::invalid_argument("T32/Thumb long-branch encodings are outside the T16 subset");
+    for (std::size_t offset = 0; offset < buffer.size();) {
+        auto op = std::uint32_t{buffer[offset]} | (std::uint32_t{buffer[offset + 1]} << 8);
+        const auto width = IsWidePrefix(op) ? 4u : 2u;
+        if (width == 4) {
+            if (buffer.size() - offset < 4) throw std::invalid_argument("Truncated T32 instruction");
+            op = (op << 16) | buffer[offset + 2] | (std::uint32_t{buffer[offset + 3]} << 8);
         }
         instructions.push_back({op, base_address + static_cast<std::uint32_t>(offset), InstructionSet::Thumb});
+        offset += width;
     }
     return instructions;
 }
 
-std::string ThumbTranslator::TranslateInstruction(std::uint16_t opcode,
+std::string ThumbTranslator::TranslateInstruction(const Instruction& inst) const {
+    if (inst.opcode <= 0xFFFFu) return TranslateInstruction(inst.opcode, inst.address);
+    const auto op = inst.opcode, first = op >> 16, second = op & 0xFFFFu;
+    constexpr auto unhandled = "// Unhandled Thumb Instruction";
+    if (inst.state != InstructionSet::Thumb || (inst.address & 1u) != 0) return unhandled;
+    if (const auto target = BranchTarget(op, inst.address)) {
+        std::string result;
+        if ((second & 0xC000u) == 0xC000u)
+            result += "cpu.r[14] = " + std::to_string((inst.address + 4u) | 1u) + "u;\n";
+        return result + "cpu.BranchExchange(" + std::to_string(*target | (IsBLXImmediate(op) ? 0u : 1u)) + "u);\nreturn;";
+    }
+    const auto rd = (second >> 8) & 15u, rn = first & 15u, rm = second & 15u;
+    const bool set_flags = (first & 16u) != 0;
+    const auto arithmetic = [&](const std::string& rhs, bool subtract) {
+        if (rd == 15 || rn == 15) return std::string{unhandled};
+        return set_flags ? Arithmetic(Reg(rn), rhs, subtract, false, Reg(rd)) :
+            Reg(rd) + " = " + Reg(rn) + (subtract ? " - " : " + ") + rhs + ";";
+    };
+    const auto move = [&](const std::string& value, const std::string& carry) {
+        if (rd >= 15) return std::string{unhandled};
+        return "{\n    const std::uint32_t value = " + value + ";\n" +
+            (set_flags ? "    const bool carry = " + carry + ";\n    cpu.UpdateNZ(value);\n    cpu.cpsr.C = carry;\n" : "") +
+            "    " + Reg(rd) + " = value;\n}";
+    };
+    if (((first & 0xFFE0u) == 0xFA00u || (first & 0xFFE0u) == 0xFA20u) && (second & 0xF0F0u) == 0xF000u) {
+        if (rd >= 15 || rn >= 13 || rm >= 13) return unhandled;
+        const bool left = (first & 0x20u) == 0;
+        return "{\n    const std::uint32_t source = " + Reg(rn) + ";\n    const unsigned amount = " + Reg(rm) +
+            " & 255u;\n    std::uint32_t result = source;\n    bool carry = cpu.cpsr.C;\n"
+            "    if (amount != 0) {\n        if (amount < 32) {\n            result = source " + (left ? "<<" : ">>") +
+            " amount;\n            carry = ((source >> " + (left ? "(32u - amount)" : "(amount - 1u)") +
+            ") & 1u) != 0;\n        } else {\n            result = 0;\n            carry = amount == 32 && " +
+            (left ? "(source & 1u) != 0" : "(source >> 31) != 0") + ";\n        }\n    }\n" +
+            (set_flags ? "    cpu.UpdateNZ(result);\n    cpu.cpsr.C = carry;\n" : "    (void)carry;\n") +
+            "    " + Reg(rd) + " = result;\n}";
+    }
+    if ((second & 0x8000u) == 0 && ((first & 0xFFE0u) == 0xEA40u ||
+        (first & 0xFFE0u) == 0xEB00u || (first & 0xFFE0u) == 0xEBA0u)) {
+        if (rm >= 13) return unhandled;
+        const auto kind = (second >> 4) & 3u;
+        auto amount = (((second >> 12) & 7u) << 2) | ((second >> 6) & 3u);
+        if (kind > 1) return unhandled;
+        if (kind == 1 && amount == 0) amount = 32;
+        std::string value = Reg(rm), carry = "cpu.cpsr.C";
+        if (amount != 0) {
+            carry = "((" + Reg(rm) + " >> " + std::to_string(kind == 0 ? 32u - amount : amount - 1u) + "u) & 1u) != 0";
+            value = amount == 32 ? "0u" : "(" + Reg(rm) + (kind == 0 ? " << " : " >> ") + std::to_string(amount) + "u)";
+        }
+        if ((first & 0xFFE0u) == 0xEA40u) return rn == 15 ? move(value, carry) : unhandled;
+        return arithmetic(value, (first & 0xFFE0u) == 0xEBA0u);
+    }
+    const auto immediate = ((first & 0x400u) << 1) | ((second >> 12) & 7u) << 8 | (second & 255u);
+    if ((second & 0x8000u) == 0 && ((first & 0xFBE0u) == 0xF040u ||
+        (first & 0xFBE0u) == 0xF100u || (first & 0xFBE0u) == 0xF1A0u)) {
+        std::uint32_t expanded = immediate & 255u;
+        bool rotated = false;
+        if ((immediate & 0xC00u) == 0) {
+            const auto replication = (immediate >> 8) & 3u;
+            if (replication != 0 && expanded == 0) return unhandled;
+            if (replication == 1) expanded |= expanded << 16;
+            if (replication == 2) expanded = (expanded << 8) | (expanded << 24);
+            if (replication == 3) expanded *= 0x01010101u;
+        } else {
+            expanded = std::rotr(0x80u | (immediate & 127u), static_cast<int>((immediate >> 7) & 31u));
+            rotated = true;
+        }
+        const auto value = std::to_string(expanded) + "u";
+        if ((first & 0xFBE0u) == 0xF040u)
+            return rn == 15 ? move(value, rotated ? ((expanded >> 31) != 0 ? "true" : "false") : "cpu.cpsr.C") : unhandled;
+        return arithmetic(value, (first & 0xFBE0u) == 0xF1A0u);
+    }
+    if ((second & 0x8000u) == 0 && ((first & 0xFBF0u) == 0xF200u || (first & 0xFBF0u) == 0xF2A0u)) {
+        if (rd == 15) return unhandled;
+        const auto base = rn == 15 ? std::to_string((inst.address + 4u) & ~3u) + "u" : Reg(rn);
+        return Reg(rd) + " = " + base + ((first & 0xA0u) != 0 ? " - " : " + ") + std::to_string(immediate) + "u;";
+    }
+    if ((second & 0x8000u) == 0 && ((first & 0xFBF0u) == 0xF240u || (first & 0xFBF0u) == 0xF2C0u)) {
+        if (rd >= 15) return unhandled;
+        const auto value = (rn << 12) | immediate;
+        return Reg(rd) + " = " + ((first & 0x80u) != 0 ? "(" + Reg(rd) + " & 0xFFFFu) | " + std::to_string(value << 16) : std::to_string(value)) + "u;";
+    }
+    const auto head = first & 0xFFF0u;
+    const bool positive = head == 0xF8D0u || head == 0xF8C0u || head == 0xF890u || head == 0xF880u;
+    const bool other = head == 0xF850u || head == 0xF840u || head == 0xF810u || head == 0xF800u;
+    if (positive || other) {
+        const bool load = (first & 16u) != 0, byte = (first & 0x40u) == 0;
+        const auto rt = second >> 12;
+        if (rt == 15 && (!load || byte)) return unhandled;
+        bool pre = true, up = true, wb = false;
+        std::string offset = std::to_string(second & 0xFFFu) + "u";
+        if (rn == 15) {
+            if (!load) return unhandled;
+            up = (first & 0x80u) != 0;
+        } else if (!positive) {
+            if ((second & 0x800u) != 0) {
+                pre = (second & 0x400u) != 0; up = (second & 0x200u) != 0; wb = (second & 0x100u) != 0;
+                if ((!pre && !wb) || (wb && rn == rt)) return unhandled;
+                offset = std::to_string(second & 255u) + "u";
+            } else {
+                if ((second & 0xFC0u) != 0 || rm >= 13) return unhandled;
+                offset = "(" + Reg(rm) + " << " + std::to_string((second >> 4) & 3u) + "u)";
+            }
+        }
+        const auto base = rn == 15 ? std::to_string((inst.address + 4u) & ~3u) + "u" : Reg(rn);
+        std::string code = "{\n    const std::uint32_t base = " + base + ";\n    const std::uint32_t adjusted = base " +
+            (up ? "+ " : "- ") + offset + ";\n";
+        if (!load) code += "    const std::uint32_t value = " + Reg(rt) + ";\n";
+        if (wb && pre) code += "    " + Reg(rn) + " = adjusted;\n";
+        const auto address = pre ? "adjusted" : "base";
+        if (load) code += "    const std::uint32_t value = memory.Read" + std::string{byte ? "8(" : "32("} + address + ");\n";
+        else code += "    memory.Write" + std::string{byte ? "8(" : "32("} + address + ", " +
+            (byte ? "static_cast<std::uint8_t>(value)" : "value") + ");\n";
+        if (load && rt != 15) code += "    " + Reg(rt) + " = value;\n";
+        if (wb && !pre) code += "    " + Reg(rn) + " = adjusted;\n";
+        if (load && rt == 15) code += "    cpu.BranchExchange(value);\n    return;\n";
+        return code + "}";
+    }
+    return unhandled;
+}
+
+std::string ThumbTranslator::TranslateInstruction(std::uint32_t opcode,
                                                   std::uint32_t current_pc) const {
+    if (opcode > 0xFFFFu) return TranslateInstruction({opcode, current_pc, InstructionSet::Thumb});
     const std::uint32_t op = opcode;
     if ((current_pc & 1u) != 0) throw std::invalid_argument("Thumb PC must be halfword aligned");
     if ((op & 0xE000u) == 0x2000u) {

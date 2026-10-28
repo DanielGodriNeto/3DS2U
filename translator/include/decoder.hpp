@@ -8,13 +8,13 @@ namespace arm11 {
 
 enum class InstructionSet : std::uint8_t { ARM, Thumb };
 
-// Raw instruction plus execution state; Thumb opcodes occupy the low 16 bits.
+// T16 uses the low halfword; T32 stores first_halfword:second_halfword.
 struct Instruction {
     std::uint32_t opcode{};
     std::uint32_t address{}; // Canonical instruction address, before pipeline bias.
     InstructionSet state{InstructionSet::ARM};
     [[nodiscard]] constexpr std::uint32_t Width() const noexcept {
-        return state == InstructionSet::Thumb ? 2u : 4u;
+        return state == InstructionSet::Thumb && opcode <= 0xFFFFu ? 2u : 4u;
     }
 };
 

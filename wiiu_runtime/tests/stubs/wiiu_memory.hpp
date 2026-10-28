@@ -35,6 +35,8 @@ public:
         return std::uint32_t{p[0]} | (std::uint32_t{p[1]} << 8) |
                (std::uint32_t{p[2]} << 16) | (std::uint32_t{p[3]} << 24);
     }
+    std::uint8_t Read8(std::uint32_t addr) const { return bytes_[Offset(addr, 1)]; }
+    void Write8(std::uint32_t addr, std::uint8_t value) { bytes_[Offset(addr, 1)] = value; }
     void Write32(std::uint32_t addr, std::uint32_t value) {
         last_address = addr; last_value = value; ++writes;
         if (addr >= Pica200::kMMIOBase && addr < Pica200::kMMIOEnd) {

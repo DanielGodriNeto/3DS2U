@@ -20,7 +20,7 @@ OBJECTS := $(patsubst src/%.cpp,$(BUILD_DIR)/%.o,$(SOURCES))
 ARCH := -mcpu=750 -meabi -mhard-float
 CPPFLAGS += -Iinclude -I../translator/include -I"$(WUT_ROOT)/include" -specs="$(WUT_ROOT)/share/wut.specs"
 CXXFLAGS ?= -O2
-CXXFLAGS += -std=c++20 $(ARCH) -Wall -Wextra -Wpedantic -Wconversion -Werror -ffunction-sections -fdata-sections
+CXXFLAGS += -std=c++20 $(ARCH) -Wall -Wextra -Wpedantic -Wconversion -Werror -ffunction-sections -fdata-sections -frounding-math -ffp-contract=off
 LDFLAGS += $(ARCH) -specs="$(WUT_ROOT)/share/wut.specs" -L"$(WUT_ROOT)/lib" -Wl,--gc-sections
 LDLIBS += -lwut
 

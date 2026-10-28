@@ -107,7 +107,7 @@ int main(int argc, char** argv) {
             append(cursor, end, false);
         }
         if (instructions.empty()) throw std::runtime_error("No instructions in .text");
-        std::cout << "[3DS2U] Parsed " << instructions.size() << " ARM/T16 instructions\n";
+        std::cout << "[3DS2U] Parsed " << instructions.size() << " ARM/Thumb instructions\n";
         arm11::CFGBuilder builder;
         const auto blocks = builder.BuildBlocks(instructions);
         arm11::CppEmitter emitter;

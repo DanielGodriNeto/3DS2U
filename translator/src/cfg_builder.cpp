@@ -33,16 +33,17 @@ CFGBuilder::BuildBlocks(const std::vector<Instruction>& instructions) const {
     std::array<std::vector<Instruction>, 2> streams;
     for (const auto& inst : instructions) {
         const auto mode = inst.state == InstructionSet::Thumb ? 1u : 0u;
-        const auto width = inst.Width();
-        if (inst.address % width != 0 || (mode == 1 && inst.opcode > 0xFFFFu) ||
+        if (inst.address % (mode == 1 ? 2u : 4u) != 0 ||
+            (mode == 1 && inst.opcode > 0xFFFFu && !ThumbTranslator::IsWidePrefix(inst.opcode >> 16)) ||
             (!streams[mode].empty() && std::uint64_t{inst.address} <
-             std::uint64_t{streams[mode].back().address} + width)) {
+             std::uint64_t{streams[mode].back().address} + streams[mode].back().Width())) {
             throw std::invalid_argument("Instructions must be aligned and ordered within each execution mode");
         }
         streams[mode].push_back(inst);
         if (inst.state == InstructionSet::Thumb) {
             if (const auto target = ThumbTranslator::BranchTarget(inst.opcode, inst.address)) {
-                branch_targets.insert(DispatchKey({*target, InstructionSet::Thumb}));
+                branch_targets.insert(DispatchKey({*target, ThumbTranslator::IsBLXImmediate(inst.opcode) ?
+                                                           InstructionSet::ARM : InstructionSet::Thumb}));
             }
             continue;
         }
@@ -66,6 +67,9 @@ CFGBuilder::BuildBlocks(const std::vector<Instruction>& instructions) const {
         BasicBlock* current = nullptr;
         std::uint64_t expected_address = 0;
         for (const auto& inst : stream) {
+            if (inst.state == InstructionSet::Thumb && inst.Width() == 4 &&
+                branch_targets.contains(DispatchKey({inst.address + 2u, InstructionSet::Thumb})))
+                throw std::invalid_argument("Branch target enters the second half of a T32 instruction");
             const auto key = DispatchKey({inst.address, inst.state});
             const auto width = inst.Width();
             if (current == nullptr || inst.address != expected_address || branch_targets.contains(key)) {
@@ -89,7 +93,8 @@ CFGBuilder::BuildBlocks(const std::vector<Instruction>& instructions) const {
             if (inst.state == InstructionSet::Thumb ? ThumbTranslator::IsTerminator(inst.opcode) : IsBranch(inst.opcode)) {
                 current->has_indirect_successor =
                     inst.state == InstructionSet::Thumb ?
-                        (ThumbTranslator::IsExchange(inst.opcode) || ThumbTranslator::IsPopPC(inst.opcode)) :
+                        (ThumbTranslator::IsExchange(inst.opcode) || ThumbTranslator::IsPopPC(inst.opcode) ||
+                         ThumbTranslator::IsWideLoadPC(inst.opcode)) :
                         (MemoryTranslator::IsLoadMultipleToPC(inst) ||
                          ((inst.opcode >> 4) & 0x00FFFFFDu) == 0x0012FFF1u);
                 current = nullptr;

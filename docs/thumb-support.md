@@ -1,4 +1,4 @@
-# Thumb-16 translation
+# Thumb translation
 
 ```text
 build\3ds2u_translator.exe input.code output.cpp --thumb
@@ -6,7 +6,8 @@ build\3ds2u_translator.exe input.code output.cpp --thumb-range 0x08000010:0xC
 build\3ds2u_translator.exe input.code output.cpp --exheader input.exheader --thumb
 ```
 
-`--thumb` fetches initialized `.text` as little-endian halfwords. For mixed images,
+`--thumb` fetches initialized `.text` as little-endian halfwords, consuming a
+second halfword for T32 prefixes. For mixed images,
 repeat `--thumb-range <guest_virtual_address>:<byte_size>` for known T16 regions;
 the remaining text is decoded as ARM words. Ranges must not overlap or leave
 `.text`, and ARM portions must remain word aligned. ExHeader metadata does not
@@ -30,10 +31,10 @@ ARM and Thumb blocks at the same canonical address. Dispatcher initialization
 selects the mode of the lowest emitted block; callers using another entry can
 set CPU state or pass a Thumb-tagged address to `Run`.
 
-T32, Thumb long BL/BLX pairs, IT, high-register data processing, immediate shifts,
-byte/halfword transfers, and other omitted formats are not implemented. Fetching
-a long-instruction prefix fails explicitly; other unsupported T16 instructions
-fail emission rather than silently executing as no-ops.
+Selected T32 long calls, ALU/shift and byte/word memory instructions are now
+implemented; see [VFP and T32](vfp-thumb32.md). IT, other omitted T16/T32 forms,
+and VFP instructions in Thumb state remain unsupported. A truncated wide prefix
+fails fetching; unsupported instructions fail emission explicitly.
 
 Tests generate and execute the translator's actual C++ bodies against independent
 arithmetic/shift references, and run a mixed-mode CLI fixture through a host

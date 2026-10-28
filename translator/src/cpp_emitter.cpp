@@ -6,6 +6,7 @@
 #include "mem_translator.hpp"
 #include "thumb_decoder.hpp"
 #include "binary_loader.hpp"
+#include "vfp_translator.hpp"
 
 #include <algorithm>
 #include <exception>
@@ -66,7 +67,7 @@ bool CppEmitter::EmitTranslatedFile(
             }
             addresses.push_back(address);
             for (const auto& inst : block.instructions)
-                uses_svc |= inst.state == InstructionSet::Thumb ? (inst.opcode & 0xFF00u) == 0xDF00u :
+                uses_svc |= inst.state == InstructionSet::Thumb ? inst.Width() == 2 && (inst.opcode & 0xFF00u) == 0xDF00u :
                             (inst.opcode & 0x0F000000u) == 0x0F000000u;
         }
         std::sort(addresses.begin(), addresses.end());
@@ -105,6 +106,7 @@ bool CppEmitter::EmitTranslatedFile(
         MemoryTranslator memory;
         BranchTranslator branch;
         ThumbTranslator thumb;
+        VFPTranslator vfp;
         for (const auto address : addresses) {
             const auto& block = cfg.at(address);
             output << "void " << BlockName(block)
@@ -116,7 +118,7 @@ bool CppEmitter::EmitTranslatedFile(
             bool terminates = false;
             for (const auto& inst : instructions) {
                 if (inst.state != block.start.state) throw std::invalid_argument("Mixed modes inside a basic block");
-                const bool t16_svc = inst.state == InstructionSet::Thumb && (inst.opcode & 0xFF00u) == 0xDF00u;
+                const bool t16_svc = inst.state == InstructionSet::Thumb && inst.Width() == 2 && (inst.opcode & 0xFF00u) == 0xDF00u;
                 const bool arm_svc = inst.state == InstructionSet::ARM && (inst.opcode & 0x0F000000u) == 0x0F000000u;
                 if (t16_svc || arm_svc) {
                     const auto id = inst.opcode & (t16_svc ? 0xFFu : 0xFFFFFFu);
@@ -130,7 +132,7 @@ bool CppEmitter::EmitTranslatedFile(
                 if (inst.state == InstructionSet::Thumb) {
                     const auto translated = thumb.TranslateInstruction(inst);
                     if (translated == "// Unhandled Thumb Instruction") {
-                        throw std::runtime_error("Unsupported T16 instruction at 0x" + HexAddress(inst.address));
+                        throw std::runtime_error("Unsupported Thumb instruction at 0x" + HexAddress(inst.address));
                     }
                     EmitInstruction(output, translated, "");
                     if (ThumbTranslator::IsTerminator(inst.opcode) &&
@@ -151,6 +153,13 @@ bool CppEmitter::EmitTranslatedFile(
                         break;
                     }
                     // A failed condition must reach the block's fallthrough PC.
+                    continue;
+                }
+                if (VFPTranslator::IsEncoding(inst.opcode)) {
+                    translated = vfp.TranslateInstruction(inst);
+                    if (translated == "// Unhandled VFP Instruction")
+                        throw std::runtime_error("Unsupported VFP instruction at 0x" + HexAddress(inst.address));
+                    EmitInstruction(output, translated, condition);
                     continue;
                 }
                 translated = alu.TranslateInstruction(inst);

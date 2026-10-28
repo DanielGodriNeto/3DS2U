@@ -10,6 +10,9 @@
 #include <span>
 #include <stdexcept>
 #include <vector>
+#include <array>
+#include <cfenv>
+#include <cmath>
 
 namespace wiiu { class SvcHandler; }
 
@@ -32,6 +35,70 @@ struct CPUContext {
     wiiu::SvcHandler* svc_handler{};
     bool svc_yield{};
     bool svc_exit_requested{};
+    // Dn aliases S[2*n] (low word) and S[2*n+1] (high word), independent of endian.
+    std::array<std::uint32_t, 32> vfp_bits{};
+    std::uint32_t fpscr{};
+    [[nodiscard]] float GetS(unsigned i) const { return std::bit_cast<float>(vfp_bits.at(i)); }
+    void SetS(unsigned i, float value) { vfp_bits.at(i) = std::bit_cast<std::uint32_t>(value); }
+    [[nodiscard]] double GetD(unsigned i) const {
+        return std::bit_cast<double>(std::uint64_t{vfp_bits.at(i * 2)} |
+                                     (std::uint64_t{vfp_bits.at(i * 2 + 1)} << 32));
+    }
+    void SetD(unsigned i, double value) {
+        const auto bits = std::bit_cast<std::uint64_t>(value);
+        vfp_bits.at(i * 2) = static_cast<std::uint32_t>(bits);
+        vfp_bits.at(i * 2 + 1) = static_cast<std::uint32_t>(bits >> 32);
+    }
+    template<class T> T VFPInput(T value) {
+        if ((fpscr & (1u << 24)) != 0 && std::fpclassify(value) == FP_SUBNORMAL) {
+            fpscr |= 1u << 7;
+            return std::copysign(T{0}, value);
+        }
+        return value;
+    }
+    template<class T> T VFPOutput(T value) {
+        if ((fpscr & (1u << 25)) != 0 && std::isnan(value)) {
+            if constexpr (sizeof(T) == 4) return std::bit_cast<float>(0x7FC00000u);
+            else return std::bit_cast<double>(std::uint64_t{0x7FF8000000000000ull});
+        }
+        if ((fpscr & (1u << 24)) != 0 && std::fpclassify(value) == FP_SUBNORMAL) {
+            fpscr |= 1u << 3;
+            // VFP flush-to-zero reports underflow, suppressing this result's inexact.
+            std::feclearexcept(FE_INEXACT);
+            return std::copysign(T{0}, value);
+        }
+        return value;
+    }
+    template<class Operation> void VFPOperation(Operation operation) {
+        // Scalar VFPv2 only: reject legacy vector length/stride and exception traps.
+        if ((fpscr & 0x00379F00u) != 0) throw std::runtime_error("Unsupported VFP vector/trap mode");
+        std::fenv_t saved;
+        if (std::feholdexcept(&saved) != 0) throw std::runtime_error("Cannot save floating-point environment");
+        constexpr int rounding[]{FE_TONEAREST, FE_UPWARD, FE_DOWNWARD, FE_TOWARDZERO};
+        if (std::fesetround(rounding[(fpscr >> 22) & 3u]) != 0) {
+            std::fesetenv(&saved);
+            throw std::runtime_error("Cannot set VFP rounding mode");
+        }
+        try { operation(); } catch (...) { std::fesetenv(&saved); throw; }
+        const int flags = std::fetestexcept(FE_ALL_EXCEPT);
+        if ((flags & FE_INVALID) != 0) fpscr |= 1u;
+        if ((flags & FE_DIVBYZERO) != 0) fpscr |= 2u;
+        if ((flags & FE_OVERFLOW) != 0) fpscr |= 4u;
+        if ((flags & FE_UNDERFLOW) != 0) fpscr |= 8u;
+        if ((flags & FE_INEXACT) != 0) fpscr |= 16u;
+        std::fesetenv(&saved);
+    }
+    [[nodiscard]] std::uint32_t VFPToS32(float value, bool toward_zero) {
+        const double input = static_cast<double>(VFPInput(value));
+        if (std::isnan(input)) { fpscr |= 1u; return 0; }
+        const double rounded = toward_zero ? std::trunc(input) : std::nearbyint(input);
+        if (rounded < -2147483648.0 || rounded > 2147483647.0) {
+            fpscr |= 1u;
+            return rounded < 0 ? 0x80000000u : 0x7FFFFFFFu;
+        }
+        if (rounded != input) fpscr |= 16u;
+        return std::bit_cast<std::uint32_t>(static_cast<std::int32_t>(rounded));
+    }
 
     constexpr void BranchExchange(std::uint32_t target) noexcept {
         thumb = (target & 1u) != 0;
@@ -89,6 +156,12 @@ public:
         : base_(guest_base), bytes_(CheckedSize(size, guest_base)) {}
 
     // memcpy avoids host alignment and strict-aliasing undefined behavior.
+    [[nodiscard]] std::uint8_t Read8(std::uint32_t address) const {
+        return std::to_integer<std::uint8_t>(bytes_[Offset(address, 1)]);
+    }
+    void Write8(std::uint32_t address, std::uint8_t value) {
+        bytes_[Offset(address, 1)] = static_cast<std::byte>(value);
+    }
     [[nodiscard]] inline std::uint32_t Read32(std::uint32_t address) const {
         std::uint32_t value;
         std::memcpy(&value, bytes_.data() + Offset(address, sizeof(value)),

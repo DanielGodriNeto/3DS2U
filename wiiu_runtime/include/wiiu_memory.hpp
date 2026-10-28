@@ -49,6 +49,8 @@ public:
     // HID/audio reads and audio/PICA200 writes use numeric MMIO values directly.
     // Other out-of-window accesses throw std::out_of_range.
     [[nodiscard]] std::uint32_t Read32(std::uint32_t addr) const;
+    [[nodiscard]] std::uint8_t Read8(std::uint32_t addr) const;
+    void Write8(std::uint32_t addr, std::uint8_t value);
     void Write32(std::uint32_t addr, std::uint32_t val);
     [[nodiscard]] std::uint16_t Read16(std::uint32_t addr) const;
     void Write16(std::uint32_t addr, std::uint16_t val);
