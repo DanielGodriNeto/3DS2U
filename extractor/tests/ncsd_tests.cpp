@@ -36,6 +36,59 @@ void Validate(const Image &image, const Fixture &fixture) {
     Check(reader.ReadFile(handle, 0, bytes.data(), bytes.size()) == 14);
     Check(std::string(bytes.data(), bytes.size()) == "3DS2U_ROMFS_OK");
 }
+void TestPlaintextSections(const std::filesystem::path &folder) {
+    NCSDExtractor extractor;
+    const auto plaintext = Make(false, false, true);
+    const auto encrypted = Make(false, true, true);
+    const auto get32 = [](const Buffer &bytes, std::size_t at) {
+        std::uint64_t value = 0;
+        for (unsigned i = 0; i < 4; ++i)
+            value |= std::uint64_t{bytes.at(at + i)} << (8 * i);
+        return value;
+    };
+    const auto exefs_at = get32(plaintext.ncch, 0x1A0) * 0x200;
+    const auto exefs_size = get32(plaintext.ncch, 0x1A4) * 0x200;
+    const auto romfs_at = get32(plaintext.ncch, 0x1B0) * 0x200;
+    const auto romfs_size = get32(plaintext.ncch, 0x1B4) * 0x200;
+    for (unsigned mask = 0; mask < 8; ++mask) {
+        auto ncch = encrypted.ncch;
+        const auto copy_section = [&](std::uint64_t at, std::uint64_t size) {
+            std::copy_n(plaintext.ncch.begin() + static_cast<std::ptrdiff_t>(at),
+                        static_cast<std::size_t>(size), ncch.begin() + static_cast<std::ptrdiff_t>(at));
+        };
+        if (mask & 1u)
+            copy_section(0x200, 0x800);
+        if (mask & 2u)
+            copy_section(exefs_at, exefs_size);
+        if (mask & 4u)
+            copy_section(romfs_at, romfs_size);
+        const KeyStore keys = mask == 7 ? KeyStore{} : NCCHKeys(encrypted.keys);
+        Validate(extractor.Extract(Cart(ncch), keys), plaintext);
+        if (mask == 7) {
+            Write(folder / "decrypted_flags.3ds", Cart(ncch));
+            Validate(extractor.ExtractFile(folder / "decrypted_flags.3ds", keys), plaintext);
+            // Valid plaintext file headers still identify ExeFS when its stored hash is stale.
+            ncch[0x1C0] ^= 1;
+            Reject([&] { (void)extractor.Extract(Cart(ncch), keys); });
+            Validate(extractor.Extract(Cart(ncch), keys, {true}), plaintext);
+            Write(folder / "decrypted_stale_hash.3ds", Cart(ncch));
+            // A matching hash never permits an out-of-bounds file entry, even with the override.
+            Put(ncch, static_cast<std::size_t>(exefs_at + 12), 0xFFFFFFFF);
+            HashAt(ncch, 0x1C0, std::span{ncch}.subspan(static_cast<std::size_t>(exefs_at), 0x200));
+            Reject([&] { (void)extractor.Extract(Cart(ncch), keys); });
+            Reject([&] { (void)extractor.Extract(Cart(ncch), keys, {true}); });
+        }
+    }
+    auto bad = plaintext.ncch;
+    Put(bad, static_cast<std::size_t>(romfs_at + 0x44), 0xFFFFFFFFFFFFFFFFull, 8);
+    Reject([&] { (void)extractor.Extract(Cart(bad), KeyStore{}, {true}); });
+    bad = plaintext.ncch;
+    Put(bad, 0x1A0, 0xFFFFFFFF);
+    Reject([&] { (void)extractor.Extract(Cart(bad), KeyStore{}, {true}); });
+    bad = plaintext.ncch;
+    Put(bad, 0x1B4, 0xFFFFFFFF);
+    Reject([&] { (void)extractor.Extract(Cart(bad), KeyStore{}, {true}); });
+}
 } // namespace
 int main() try {
     NCSDExtractor extractor;
@@ -43,6 +96,7 @@ int main() try {
         std::filesystem::path("build") /
         ("ncsd-tests-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     Check(std::filesystem::create_directories(folder));
+    TestPlaintextSections(folder);
     for (const auto &flags : {std::array<unsigned, 6>{1, 0, 0, 0, 0, 2},
                               {1, 1, 0, 0, 1, 2},
                               {1, 0, 1, 0, 1, 2},
@@ -110,6 +164,13 @@ int main() try {
     auto corrupt = fixed_cart;
     corrupt[0x4000 + 0xA00 + 0x200] ^= 1;
     Reject([&] { (void)extractor.Extract(corrupt, empty); });
+    auto stale_hash = fixed_cart;
+    stale_hash[0x4000 + 0x160] ^= 1;
+    Reject([&] { (void)extractor.Extract(stale_hash, empty); });
+    Validate(extractor.Extract(stale_hash, empty, {true}), fixed);
+    Write(folder / "stale_hash.cci", stale_hash);
+    Validate(extractor.ExtractFile(folder / "stale_hash.cci", empty, {true}), fixed);
+    Reject([&] { (void)extractor.Extract(std::span{fixed_cart}.first(100), empty, {true}); });
     Reject([&] { (void)ExtractNCCH([](std::uint64_t, std::size_t) { return Buffer{}; }, 0x2000, empty); });
     std::cout
         << "NCSD partition bounds, trimmed dumps, NCCH secure/seed/fixed crypto and RomFS tests passed.\n";

@@ -5,7 +5,8 @@
 namespace extractor {
 namespace {
 using namespace detail;
-Image ExtractCart(const Reader &read, std::uint64_t file_size, const KeyStore &keys) {
+Image ExtractCart(const Reader &read, std::uint64_t file_size, const KeyStore &keys,
+                  ExtractionOptions options) {
     const auto header = read(0, 0x200);
     Need(std::equal(header.begin() + 0x100, header.begin() + 0x104, "NCSD"),
          "Expected an NCSD cartridge header");
@@ -47,17 +48,19 @@ Image ExtractCart(const Reader &read, std::uint64_t file_size, const KeyStore &k
     const auto listed_id = Integer(header, 0x190, 8);
     Need(listed_id == 0 || listed_id == Integer(ncch, 0x108, 8),
          "NCSD partition ID table disagrees with NCCH");
-    return ExtractNCCH(partition_read, primary.size, keys);
+    return ExtractNCCH(partition_read, primary.size, keys, options);
 }
 } // namespace
-Image NCSDExtractor::Extract(std::span<const std::uint8_t> file, const KeyStore &keys) const {
+Image NCSDExtractor::Extract(std::span<const std::uint8_t> file, const KeyStore &keys,
+                             ExtractionOptions options) const {
     detail::BinaryInput input(file);
     return ExtractCart([&](std::uint64_t at, std::size_t size) { return input.Read(at, size); },
-                       input.GetSize(), keys);
+                       input.GetSize(), keys, options);
 }
-Image NCSDExtractor::ExtractFile(const std::filesystem::path &filename, const KeyStore &keys) const {
+Image NCSDExtractor::ExtractFile(const std::filesystem::path &filename, const KeyStore &keys,
+                                 ExtractionOptions options) const {
     detail::BinaryInput input(filename);
     return ExtractCart([&](std::uint64_t at, std::size_t size) { return input.Read(at, size); },
-                       input.GetSize(), keys);
+                       input.GetSize(), keys, options);
 }
 } // namespace extractor

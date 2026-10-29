@@ -26,6 +26,16 @@ seed methods, backwards BLZ decompression and IVFC Level-3 RomFS extraction.
 implementation. File-backed adapters use synchronous bounded reads rather than
 loading the whole CIA or cartridge dump into RAM.
 
+Decrypted dumps with stale crypto flags are detected per section. ExHeader uses
+its stored SHA256; ExeFS uses its superblock SHA256 or a validated file table
+(including names, `.code`, bounded sizes and non-overlapping ranges). A plaintext
+ExeFS decision applies to its file payloads as well as its header. RomFS uses a
+bounded IVFC header check. Fully plaintext dumps need no AES keys; mixed dumps
+continue to decrypt the remaining encrypted sections.
+
+Hash mismatches still fail unless `--ignore-hash` is supplied. The override never
+disables file-table validation, section/file bounds, or decompression checks.
+
 ## NCSD validation
 
 The parser reads the signed header's `NCSD` magic at `0x100`, media capacity,

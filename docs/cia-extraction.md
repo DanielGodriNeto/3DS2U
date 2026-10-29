@@ -8,6 +8,25 @@ build\extractor.exe game.cia
 build_3ds2u_app.cmd game.cia game_wiiu.rpx
 ```
 
+For extraction diagnostics and AOT experiments with stale integrity hashes:
+
+```bat
+build\extractor.exe nsmb2.cia --ignore-hash
+```
+
+Diagnostics identify the Title ID, common-key index, requested key names/KeyX slots,
+and the failing TMD table, TMD chunk records, CIA content, NCCH ExHeader, ExeFS
+superblock, `.code`, or seed verification hash. Expected and actual digests are
+printed on failure; secret key values are never printed. TMD metadata checks
+precede decryption. The CIA content hash covers outer-CBC-decoded bytes before
+inner NCCH CTR decryption, so an inner KeyX cannot cause that hash mismatch.
+
+`--ignore-hash` changes hash failures into warnings for CIA and NCSD extraction.
+It does not recover missing/wrong keys, bypass missing NCCH magic, or disable
+bounds, decompression, section-layout or RomFS validation. A missing NCCH magic
+is detected before hashing content; that header is outside NCCH CTR encryption.
+The master build script does not enable this override automatically.
+
 The standalone extractor reads `keys.txt` in its current directory. The master
 script changes to the project root, so put that pipeline's key file there. The
 file is ignored by Git. Key values are never printed or included in generated
@@ -28,7 +47,7 @@ to the 3DS Normal-Key scrambler. The implementation uses:
 4. AES-CTR for NCCH ExHeader, ExeFS and RomFS. These use separate NCCH keys, not
    the CIA TitleKey. A common key alone cannot decrypt an encrypted NCCH.
 
-Key entries are lowercase names, `=`, and exactly 32 hexadecimal digits; `#`
+Key entry names are normalized to lowercase, followed by `=`, and exactly 32 hexadecimal digits; `#`
 starts a comment. Duplicate names and malformed values fail. Required values
 depend on the ticket/NCCH flags:
 

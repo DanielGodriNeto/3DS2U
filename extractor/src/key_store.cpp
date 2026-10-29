@@ -43,7 +43,10 @@ void KeyStore::LoadFile(const std::filesystem::path &filename) {
             continue;
         const auto equal = line.find('=');
         Need(equal != std::string::npos, "Malformed keys.txt entry");
-        const auto name = Trim(line.substr(0, equal)), value = Trim(line.substr(equal + 1));
+        auto name = Trim(line.substr(0, equal));
+        const auto value = Trim(line.substr(equal + 1));
+        for (auto& c : name)
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
         Need(!name.empty() &&
                  name.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") == std::string::npos &&
                  value.size() == 32,

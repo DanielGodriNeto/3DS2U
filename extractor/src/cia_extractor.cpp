@@ -47,7 +47,8 @@ struct Content {
     }
 };
 
-Image ExtractCIA(const Reader &read, std::uint64_t file_size, const KeyStore &keys) {
+Image ExtractCIA(const Reader &read, std::uint64_t file_size, const KeyStore &keys,
+                 ExtractionOptions options) {
     const auto header = read(0, 0x2020);
     Need(LE32(header, 0) == 0x2020 && Integer(header, 6, 2) == 0, "Unsupported CIA header");
     const auto cert_size = LE32(header, 8), ticket_size = LE32(header, 0xC), tmd_size = LE32(header, 0x10);
@@ -69,10 +70,15 @@ Image ExtractCIA(const Reader &read, std::uint64_t file_size, const KeyStore &ke
          "Personalized CIA tickets require device-specific ticket conversion");
     Need(Integer(ticket, tk + 0x9C, 8, true) == Integer(tmd, tm + 0x4C, 8, true),
          "Ticket and TMD title IDs disagree");
+    const auto key_index = ticket[tk + 0xB1];
+    const auto context = "Title ID 0x" + Hex(Integer(ticket, tk + 0x9C, 8, true), 16) + ", CommonKey index " +
+                         std::to_string(key_index);
+    std::cerr << "[3DS2U Extractor] CIA " << context << '\n';
     const auto count = BE16(tmd, tm + 0x9E), boot = BE16(tmd, tm + 0xA0);
     Need(count != 0, "CIA contains no content records");
     Range(tmd.size(), tm + 0x9C4, std::uint64_t{count} * 48);
-    CheckHash(Bytes(tmd).subspan(tm + 0xC4, 0x900), Bytes(tmd).subspan(tm + 0xA4, 32));
+    CheckHash(Bytes(tmd).subspan(tm + 0xC4, 0x900), Bytes(tmd).subspan(tm + 0xA4, 32),
+              "TMD content-info table (unencrypted metadata; " + context + ")", options);
     std::vector<bool> covered(count, false);
     for (unsigned i = 0; i < 64; ++i) {
         const auto at = tm + 0xC4 + i * 0x24;
@@ -84,7 +90,10 @@ Image ExtractCIA(const Reader &read, std::uint64_t file_size, const KeyStore &ke
             Need(!covered[n], "Overlapping TMD content-info records");
             covered[n] = true;
         }
-        CheckHash(Bytes(tmd).subspan(tm + 0x9C4 + start * 48u, number * 48u), Bytes(tmd).subspan(at + 4, 32));
+        CheckHash(Bytes(tmd).subspan(tm + 0x9C4 + start * 48u, number * 48u), Bytes(tmd).subspan(at + 4, 32),
+                  "TMD chunk records, group " + std::to_string(i) + " (unencrypted metadata; " + context +
+                      ")",
+                  options);
     }
     Need(std::all_of(covered.begin(), covered.end(), [](bool value) { return value; }),
          "Incomplete TMD content-info table");
@@ -109,13 +118,30 @@ Image ExtractCIA(const Reader &read, std::uint64_t file_size, const KeyStore &ke
         Range(content_size, cursor, size);
         Need(size != 0, "Empty CIA content");
         Content content{read, content_at + cursor, size, {}, {}, (type & 1u) != 0};
+        // Outer CIA encryption is independent of the inner NCCH crypto flags.
+        if (size >= 0x104) {
+            const auto prefix = read(content.offset, 0x104);
+            Need(prefix.size() == 0x104, "Short CIA content header read");
+            if (LE32(prefix, 0x100) == 0x4843434Eu) {
+                std::cerr << "[3DS2U Extractor] CIA content is already decrypted (NoCrypto). "
+                             "Skipping outer AES-CBC pass.\n";
+                content.encrypted = false;
+            }
+        }
         if (content.encrypted) {
             Need(size % 16 == 0, "Encrypted CIA content is not block aligned");
             if (!have_title) {
+                const auto suffix = std::to_string(key_index);
+                const auto key_name = keys.Find("common_key_" + suffix) ? "common_key_" + suffix
+                                      : key_index == 0 && keys.Find("common_key")
+                                          ? std::string{"common_key"}
+                                          : "keyx_3d + common_key_y_" + suffix;
+                std::cerr << "[3DS2U Extractor] Ticket TitleKey AES-CBC: requesting " << key_name << " ("
+                          << context << ")\n";
                 std::copy_n(ticket.begin() + static_cast<std::ptrdiff_t>(tk + 0x7F), 16, title_key.begin());
                 Block iv{};
                 std::copy_n(ticket.begin() + static_cast<std::ptrdiff_t>(tk + 0x9C), 8, iv.begin());
-                crypto::AES128_CBCDecrypt(title_key, keys.CommonKey(ticket[tk + 0xB1]), iv);
+                crypto::AES128_CBCDecrypt(title_key, keys.CommonKey(key_index), iv);
                 have_title = true;
             }
             content.key = title_key;
@@ -133,6 +159,11 @@ Image ExtractCIA(const Reader &read, std::uint64_t file_size, const KeyStore &ke
         bitmap_count += static_cast<unsigned>(std::popcount(header[i]));
     Need(cursor == content_size && bitmap_count == included && selected.has_value(),
          "CIA content bitmap/length or boot index is invalid");
+    const auto content_context =
+        "CIA TMD content chunk, index " + std::to_string(boot) +
+        (selected->encrypted ? " (after outer AES-CBC; " : " (unencrypted content; ") + context + ")";
+    std::cerr << "[3DS2U Extractor] " << content_context << "; checking NCCH magic before SHA256\n";
+    CheckNCCHMagic(selected->Read(0, 0x200), content_context);
     crypto::SHA256 hash;
     for (std::uint64_t at = 0; at < selected->size;) {
         const auto length =
@@ -140,20 +171,22 @@ Image ExtractCIA(const Reader &read, std::uint64_t file_size, const KeyStore &ke
         hash.Update(selected->Read(at, length));
         at += length;
     }
-    Need(hash.Finish() == expected, "CIA content hash failed (wrong key or corrupt data)");
+    const auto actual = hash.Finish();
+    CheckDigest(actual, expected, content_context, options);
     return ExtractNCCH([&](std::uint64_t at, std::size_t length) { return selected->Read(at, length); },
-                       selected->size, keys);
+                       selected->size, keys, options);
 }
 } // namespace
 
-Image CIAExtractor::Extract(Bytes file, const KeyStore &keys) const {
+Image CIAExtractor::Extract(Bytes file, const KeyStore &keys, ExtractionOptions options) const {
     BinaryInput input(file);
     return ExtractCIA([&](std::uint64_t at, std::size_t size) { return input.Read(at, size); },
-                      input.GetSize(), keys);
+                      input.GetSize(), keys, options);
 }
-Image CIAExtractor::ExtractFile(const std::filesystem::path &filename, const KeyStore &keys) const {
+Image CIAExtractor::ExtractFile(const std::filesystem::path &filename, const KeyStore &keys,
+                                ExtractionOptions options) const {
     BinaryInput input(filename);
     return ExtractCIA([&](std::uint64_t at, std::size_t size) { return input.Read(at, size); },
-                      input.GetSize(), keys);
+                      input.GetSize(), keys, options);
 }
 } // namespace extractor

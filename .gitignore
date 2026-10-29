@@ -30,3 +30,8 @@ bin/
 *.cia
 *.cxi
 keys.txt
+
+# Confidential telemetry and runtime logs
+wiiunx2-recent-*.txt
+wiiunx2.log
+*.log

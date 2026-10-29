@@ -2,6 +2,7 @@
 #include "ncch_extractor.hpp"
 #include <algorithm>
 #include <fstream>
+#include <iostream>
 #include <limits>
 #include <stdexcept>
 
@@ -45,10 +46,35 @@ inline std::string Hex(std::uint64_t value, unsigned width) {
     }
     return result;
 }
-inline void CheckHash(Bytes bytes, Bytes expected) {
+inline void CheckDigest(Bytes actual, Bytes expected, const std::string &context, ExtractionOptions options) {
+    if (actual.size() == expected.size() && std::equal(actual.begin(), actual.end(), expected.begin()))
+        return;
+    const auto digest_hex = [](Bytes bytes) {
+        std::string result;
+        for (auto byte : bytes)
+            result += Hex(byte, 2);
+        return result;
+    };
+    std::cerr << "[3DS2U Extractor] " << (options.ignore_hash ? "WARNING: " : "ERROR: ") << context
+              << " hash mismatch\n"
+              << "  Expected: " << digest_hex(expected) << "\n  Actual:   " << digest_hex(actual) << '\n';
+    if (!options.ignore_hash)
+        throw std::runtime_error(context + " hash mismatch");
+    std::cerr << "[3DS2U Extractor] WARNING: Continuing because --ignore-hash is enabled.\n";
+}
+inline void CheckHash(Bytes bytes, Bytes expected, const std::string &context, ExtractionOptions options) {
     const auto hash = crypto::Hash(bytes);
-    Need(expected.size() == hash.size() && std::equal(hash.begin(), hash.end(), expected.begin()),
-         "SHA256 integrity check failed");
+    CheckDigest(hash, expected, context, options);
+}
+inline void CheckNCCHMagic(Bytes header, const std::string &context) {
+    if (header.size() >= 0x104 && LE32(header, 0x100) == 0x4843434Eu)
+        return;
+    std::cerr << "[3DS2U Extractor] " << context << '\n'
+              << "[3DS2U Extractor] FATAL: NCCH magic missing. Ticket TitleKey decryption failed "
+                 "(check common_key) or KeyX is incorrect.\n"
+              << "[3DS2U Extractor] NCCH magic is outside inner NCCH CTR encryption; "
+                 "check outer CIA CBC, content selection or corruption first.\n";
+    throw std::runtime_error("NCCH magic missing; cannot extract even with --ignore-hash");
 }
 // Synchronous bounded reads, shared by memory fixtures and multi-gigabyte disk images.
 class BinaryInput {
