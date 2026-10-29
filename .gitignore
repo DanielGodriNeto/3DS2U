@@ -1,6 +1,7 @@
 # PC Build and Binaries
 build/
 output_translated.cpp
+translated_game.cpp
 extracted.code
 extracted.exheader
 extracted.romfs
@@ -30,8 +31,27 @@ bin/
 *.cia
 *.cxi
 keys.txt
+keys*.txt
+*.3dsx
+*.romfs
+*.exheader
+
+# Local secrets and environment files
+*.pem
+*.key
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+
+# Local Python test artifacts
+__pycache__/
+*.py[cod]
+*.pyo
 
 # Confidential telemetry and runtime logs
 wiiunx2-recent-*.txt
 wiiunx2.log
+log.txt
 *.log

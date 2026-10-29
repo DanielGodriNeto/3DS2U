@@ -31,9 +31,8 @@ int main() {
         out << "void " << name << "(arm11::CPUContext& cpu, arm11::Memory& memory) { (void)cpu; (void)memory;\n" << code << "\n}\n";
         instructions.push_back({raw, 0x08000000u + static_cast<std::uint32_t>(instructions.size() * 4)});
     }
-    bool rejected = false;
-    try { (void)translator.TranslateInstruction({0xEE710B02u, 0}); } catch (const std::runtime_error&) { rejected = true; }
-    if (!rejected) throw std::runtime_error("D16 must be rejected for VFPv2");
+    if (translator.TranslateInstruction({0xEE710B02u, 0}) != "// Unhandled VFP Instruction")
+        throw std::runtime_error("D16 must be rejected for VFPv2");
     if (!arm11::CppEmitter{}.EmitTranslatedFile("build/vfp_blocks.cpp", arm11::CFGBuilder{}.BuildBlocks(instructions)))
         throw std::runtime_error("VFP emitter integration failed");
     out << R"cpp(

@@ -1,5 +1,10 @@
 # 3DS2U
 
+For architectural handoff and safe maintenance, start with the
+[maintainer guide](docs/maintainer-guide.md),
+[security and privacy policy](SECURITY.md), and
+[contribution workflow](CONTRIBUTING.md).
+
 3DS2U is an experimental **3DS ARM11 to Wii U PowerPC ahead-of-time (AOT)
 static recompiler**. A PC tool converts supported ARM/Thumb instructions into
 C++20 basic-block functions. A devkitPPC/wut runtime dispatches those functions

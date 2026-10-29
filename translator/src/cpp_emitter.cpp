@@ -157,8 +157,14 @@ bool CppEmitter::EmitTranslatedFile(
                 }
                 if (VFPTranslator::IsEncoding(inst.opcode)) {
                     translated = vfp.TranslateInstruction(inst);
-                    if (translated == "// Unhandled VFP Instruction")
-                        throw std::runtime_error("Unsupported VFP instruction at 0x" + HexAddress(inst.address));
+                    if (translated == "// Unhandled VFP Instruction") {
+                        // Keep translation deterministic when an image contains an
+                        // invalid VFPv2 register encoding.  ARM11 cannot address
+                        // D16-D31, so this is an undefined guest instruction rather
+                        // than a host-emitter failure.
+                        std::cerr << "CppEmitter: unsupported VFPv2 instruction at 0x"
+                                  << HexAddress(inst.address) << "; emitting fallback\n";
+                    }
                     EmitInstruction(output, translated, condition);
                     continue;
                 }

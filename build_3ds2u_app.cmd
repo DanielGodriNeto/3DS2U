@@ -33,6 +33,9 @@ if not exist "%WUT_ROOT%/lib/libwut.a" goto missing_toolchain
 if not exist "%DEVKITPRO%/tools/bin/elf2rpl.exe" goto missing_toolchain
 if not exist "%MAKE_EXE%" goto missing_toolchain
 if not exist "%DEVKITPRO%/msys2/usr/bin/sh.exe" goto missing_toolchain
+echo [3DS2U] Cleaning stale generated artifacts
+powershell.exe -NoProfile -File "scripts\clean_generated.ps1" -ProjectRoot "%CD%" -InputPath "%INPUT_ROM%" -OutputName "%OUTPUT_NAME%"
+if errorlevel 1 goto cleanup_failed
 echo [3DS2U] [2/6] Extracting 3DSX/CIA/NCSD executable segments and RomFS
 "build\extractor.exe" "%INPUT_ROM%"
 if errorlevel 1 goto extraction_failed
@@ -70,6 +73,9 @@ echo [3DS2U] ERROR: Build extractor.exe and 3ds2u_translator.exe first; see READ
 goto failed
 :missing_toolchain
 echo [3DS2U] ERROR: Missing devkitPPC, wut, elf2rpl, make or the MSYS shell. Check toolchain environment variables. 1>&2
+goto failed
+:cleanup_failed
+echo [3DS2U] ERROR: Generated-artifact cleanup failed; build was stopped to avoid stale inputs. 1>&2
 goto failed
 :extraction_failed
 echo [3DS2U] ERROR: Extraction failed; translation and compilation were skipped. 1>&2

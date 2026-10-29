@@ -1,14 +1,18 @@
 #include "vfp_translator.hpp"
-#include <stdexcept>
+#include <optional>
 
 namespace arm11 {
 namespace {
 std::string R(unsigned r) { return "cpu.r[" + std::to_string(r) + "]"; }
 std::string Bits(unsigned s) { return "cpu.vfp_bits[" + std::to_string(s) + "]"; }
-unsigned Register(unsigned field, unsigned extension, bool dp) {
-    const auto index = dp ? field + extension * 16u : field * 2u + extension;
-    if (dp && index >= 16) throw std::runtime_error("ARM11 VFPv2 has only D0-D15");
-    return index;
+// VFPv2 on ARM11 exposes D0-D15 only.  The encoding extension bits select
+// S-register parity for single precision; they must not manufacture D16-D31.
+std::optional<unsigned> Register(unsigned field, unsigned extension, bool dp) {
+    if (dp) {
+        if (extension != 0) return std::nullopt;
+        return field;
+    }
+    return field * 2u + extension;
 }
 std::string Get(unsigned reg, bool dp) { return "cpu.VFPInput(cpu.Get" + std::string{dp ? "D(" : "S("} + std::to_string(reg) + "))"; }
 std::string Set(unsigned reg, bool dp, const std::string& value) {
@@ -39,7 +43,10 @@ std::string VFPTranslator::TranslateInstruction(const Instruction& inst) const {
         return (op & (1u << 20)) != 0 ? R(rt) + " = " + Bits(s) + ";" : Bits(s) + " = " + R(rt) + ";";
     }
     const bool precision_conversion = (op & 0x0FBF0ED0u) == 0x0EB70AC0u;
-    const auto vd = Register((op >> 12) & 15u, (op >> 22) & 1u, precision_conversion ? !dp : dp);
+    const auto vd_value = Register((op >> 12) & 15u, (op >> 22) & 1u,
+                                   precision_conversion ? !dp : dp);
+    if (!vd_value) return unhandled;
+    const auto vd = *vd_value;
     if ((op & 0x0E000E00u) == 0x0C000A00u) {
         const bool pre = (op & (1u << 24)) != 0, up = (op & (1u << 23)) != 0;
         const bool wb = (op & (1u << 21)) != 0, load = (op & (1u << 20)) != 0;
@@ -63,11 +70,15 @@ std::string VFPTranslator::TranslateInstruction(const Instruction& inst) const {
         return code + "}";
     }
     if ((op & 0x0F000E10u) != 0x0E000A00u) return unhandled;
-    const auto vm = Register(op & 15u, (op >> 5) & 1u, dp);
+    const auto vm_value = Register(op & 15u, (op >> 5) & 1u, dp);
+    if (!vm_value) return unhandled;
+    const auto vm = *vm_value;
     const auto operation = (op >> 20) & 0xBu;
     if (operation == 2 || operation == 3 || (operation == 8 && (op & 0x40u) == 0)) {
         if (operation == 2 && (op & 0x40u) != 0) return unhandled;
-        const auto vn = Register((op >> 16) & 15u, (op >> 7) & 1u, dp);
+        const auto vn_value = Register((op >> 16) & 15u, (op >> 7) & 1u, dp);
+        if (!vn_value) return unhandled;
+        const auto vn = *vn_value;
         const char* symbol = operation == 2 ? " * " : operation == 8 ? " / " : (op & 0x40u) != 0 ? " - " : " + ";
         return Operation(Set(vd, dp, Get(vn, dp) + symbol + Get(vm, dp)));
     }
@@ -86,7 +97,9 @@ std::string VFPTranslator::TranslateInstruction(const Instruction& inst) const {
         return Operation(Set(vd, dp, "std::sqrt(" + Get(vm, dp) + ")"));
     }
     if (unary == 7 && bit7) {
-        const auto destination = Register((op >> 12) & 15u, (op >> 22) & 1u, !dp);
+        const auto destination_value = Register((op >> 12) & 15u, (op >> 22) & 1u, !dp);
+        if (!destination_value) return unhandled;
+        const auto destination = *destination_value;
         return Operation(Set(destination, !dp, "static_cast<" + std::string{dp ? "float" : "double"} + ">(" + Get(vm, dp) + ")"));
     }
     if (unary == 8 && bit7 && !dp) {

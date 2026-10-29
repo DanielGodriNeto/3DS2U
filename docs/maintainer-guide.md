@@ -1,0 +1,143 @@
+# Maintainer handoff
+
+## Purpose and current state
+
+3DS2U extracts supported 3DS containers, translates a subset of guest instructions
+to C++20, and compiles them into a Wii U RPX. This is a prototype, not a complete
+3DS emulator. An RPX building successfully does not prove a game boots. There is
+no interpreter/JIT fallback for missing AOT blocks or dynamically loaded CRO code.
+
+The graphics, audio, HID and service bridges include synthetic project protocols.
+They are useful for authored demos but do not reproduce all retail OS/GPU traffic.
+The README feature table and subsystem documents describe the supported subset.
+
+## Repository map
+
+| Path | Responsibility |
+| --- | --- |
+| `extractor/include`, `extractor/src` | Host CLI, 3DSX relocation, CIA/NCSD adapters, shared NCCH decryption, BLZ, key parsing |
+| `extractor/tests` | Synthetic container fixtures, AES standard vectors, parser/crypto boundary checks |
+| `translator/include`, `translator/src` | Binary layout, instruction/mode representation, CFG, translators and source emitter |
+| `translator/tests` | Host execution of emitted arithmetic/memory/VFP/T32 code and decoder tests |
+| `wiiu_runtime/include`, `wiiu_runtime/src` | PPC memory, dispatcher, GX2/AX/VPAD, kernel and HLE components |
+| `wiiu_runtime/tests` | Host mocks and synthetic Wii U demos; platform stubs are not production APIs |
+| `scripts` | Checked artifact cleanup and redacted privacy audit; tests under `scripts/tests` |
+| `.githooks` | Optional staged-file privacy check; explicitly enable per clone |
+| `docs` | Format decisions, implementation notes, subsystem limitations and workflows |
+| `build` | Ignored tools, objects, test output, diagnostics and packages; never a source dependency |
+
+The root demo generators are authored fixtures. Small checked-in `dummy_*.bin`
+files are legacy synthetic fixtures, not game dumps. Root generated C++ is
+disposable; only `wiiu_runtime/src/*.cpp` enters the runtime Makefile.
+
+## Pipeline and generated interfaces
+
+1. Build `extractor.exe` and `3ds2u_translator.exe` using README's MSVC commands.
+   Use a developer command prompt; no personal Visual Studio installation path
+   belongs in a checked-in command. Other C++20 compilers may work but need their
+   own build invocation. SDK paths are configured through environment variables.
+2. `build_3ds2u_app.cmd input.3dsx output.rpx` also accepts supported CIA/NCSD.
+   It validates tools, cleans old generated artifacts, extracts, translates,
+   installs generated sources, invokes make and publishes the selected output.
+3. The extractor writes `extracted.code`, `extracted.exheader`, `extracted.romfs`
+   and `extracted_romfs.cpp`. ExeFS `.code` alone has no section table. NCCH uses
+   a separate decrypted ExHeader; 3DSX extraction synthesizes the required layout.
+4. `CppEmitter` creates block functions and a global
+   `InitDispatcher(wiiu::WiiUEngine&)`. Block arguments are CPUContext and
+   WiiUMemory. Generated memory statements use the block's `memory` reference.
+5. The dispatcher maps image sections, reserves/zeros backing including BSS,
+   loads initialized bytes, registers block functions and sets the entry PC/mode.
+   Runtime `main` must not overwrite that parsed entry point.
+6. The generated RomFS source supplies `GetPackagedRomFS()`; `packaged_romfs.cpp`
+   provides a weak empty fallback. Main mounts embedded Level-3 RomFS. A new
+   missing-RomFS build must replace old assets with an empty package.
+
+Do not run unified builds concurrently: extraction names, generated sources and
+object paths are shared. Cleanup preserves host executables, so rebuilding a
+runtime never updates an old host tool. Close Cemu before replacing an RPX.
+
+## Architectural invariants and decisions
+
+- Guest integer/file bytes are little-endian. PPC is big-endian. Binary parsers
+  read integers explicitly; WiiUMemory converts numeric 16/32-bit accesses while
+  raw byte buffers retain their guest order. MMIO passes numeric values directly.
+- O3DS/N3DS backing is 128/256 MiB, aligned to 4 KiB, with a canonical window at
+  `0x08000000`. Generated low image VAs map to compact backing via MapImageRange;
+  this is not a general page table. Heap reservations protect image/BSS backing.
+- ARM instructions are four bytes; Thumb can be two or four. Dispatch keys encode
+  Thumb in bit zero, while stored instruction addresses are canonical. ExHeader
+  metadata does not identify mode boundaries or literal pools. The default CLI
+  scans ARM linearly; use explicit Thumb ranges when known. Reachability-based
+  ARM/Thumb/data discovery is pending.
+- Literal LDR bases use the individual instruction PC+8, not the block-entry PC.
+  Other unsupported PC/shift/register-overlap cases need architectural review.
+- VFP double registers are D0-D15; single registers S0-S31 alias their words.
+  Decode operands only after identifying their format/precision. Reserved double
+  extensions and unsupported VFP forms emit conditional runtime diagnostic traps.
+  This is not a complete guest Undefined Instruction exception implementation.
+- CIA outer content encryption is CBC; NCCH region encryption is CTR. Plaintext
+  NCCH content magic bypasses stale CIA encryption flags. Raw ExHeader hashes,
+  validated ExeFS headers/hashes and bounded IVFC headers detect plaintext NCCH
+  regions. Plaintext decisions do not relax bounds or hash checks.
+- BLZ displacement is measured before decrementing the output cursor. Repeated
+  identical-byte fixtures can hide off-by-one corruption; retain nonconstant
+  pattern tests. Compressed-file hashes alone cannot validate decoded output.
+- Kernel threading uses native workers plus a shared execution mutex. GX2 access
+  remains on the main rendering context; host synchronization mocks are limited.
+
+## Setup, testing and maintenance
+
+Dependencies: Windows cmd/PowerShell for the master workflow, Python 3 plus Git
+for privacy tooling, C++20 host compiler, devkitPPC, wut, GNU make, MSYS sh and
+elf2rpl. Toolchain binaries/libraries are external dependencies; do not vendor a
+private SDK. The history-cleanup tool, when needed, is external git-filter-repo.
+
+Host test source files are maintained in each component's `tests` directory.
+Build/run them from the repository root. Container tests link their adapter,
+`ncch_extractor.cpp`, `key_store.cpp`, `crypto_engine.cpp`, and the runtime RomFS
+reader; CIA tests additionally link translator `binary_loader.cpp`. VFP/T32 and
+memory tests generate C++ execution sources which must then be compiled and run.
+See the compiler commands in the subsystem docs and `scripts/run_host_tests.cmd`.
+
+```powershell
+powershell -NoProfile -File scripts/tests/clean_generated_tests.ps1
+python -m unittest discover -s scripts/tests -p "test_*.py"
+python scripts/audit_repository.py --scope working
+python scripts/audit_repository.py --scope history
+```
+
+Generated `translated_game.cpp` currently remains one large translation unit.
+The Makefile appends `TRANSLATED_OPT=-O0` by default to reduce optimization cost;
+handwritten runtime files retain `-O2`. This trades runtime speed for bring-up
+time. Splitting generated translation units and compact asset packaging are
+pending. Binary-to-C++ RomFS arrays can also make compilation very expensive.
+The unified workflow cleans runtime objects, so incremental speed is sacrificed
+for reproducible fresh image builds. Manual builds can retain stale assets.
+
+## Troubleshooting
+
+| Symptom | Check next |
+| --- | --- |
+| Missing NCCH magic | Outer CIA CBC/key/content selection or corruption; inner CTR does not encrypt the magic |
+| ExHeader/ExeFS hash mismatch | Exact crypto layer, requested key slot, plaintext detection, metadata integrity |
+| Nonsensical decoded branches | BLZ output, mode selection, embedded data, PC semantics; do not hide missing blocks |
+| Address below FCRAM | Image VA mapping emitted/installed, current host-tool version, actual faulting address |
+| No translated block | Last guest target/mode, CFG boundaries, unsupported control flow, CRO/dynamic code |
+| Long quiet compile | Source size, compiler CPU/RAM, generated optimization setting; no fixed completion time |
+| Black screen | Read redacted runtime termination/PC logs before attributing failure to graphics |
+| Device Guard/Defender blocks a test | Record the blocked check; obtain approved execution, do not evade controls |
+
+## Priorities and handoff boundaries
+
+Prioritize correct reachable code/mode discovery, explicit unsupported instruction
+handling, PC semantics, real IPC/SVC integration, and genuine PICA200 protocols.
+ALU/register-shifter/PC-destination handling is partial; some unsupported ARM
+operations still emit comments. CRO mapping does not create executable host code.
+Full MMU, startup state, services and GPU/DSP behavior are incomplete. Do not
+claim commercial compatibility from synthetic demos or a successful link.
+
+When handing off, state which tools were rebuilt, which generated artifacts were
+regenerated, exactly what was tested and any blocked checks. Use redacted synthetic
+reproducers. Do not require an assistant or contributor to reconstruct decisions
+from chat history. For privacy/history work, follow SECURITY.md and preserve
+intentional authorship and third-party attribution.

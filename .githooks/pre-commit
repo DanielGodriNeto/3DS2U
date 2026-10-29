@@ -1,0 +1,10 @@
+#!/bin/sh
+# Opt in with: git config core.hooksPath .githooks
+if command -v python3 >/dev/null 2>&1; then
+    exec python3 scripts/audit_repository.py --scope staged
+elif command -v python >/dev/null 2>&1; then
+    exec python scripts/audit_repository.py --scope staged
+else
+    echo "Python 3 is required for the staged-file privacy check." >&2
+    exit 1
+fi
