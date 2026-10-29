@@ -5,6 +5,9 @@ README, then run:
 
 ```bat
 build_3ds2u_app.cmd game.3dsx game_wiiu.rpx
+build_3ds2u_app.cmd game.cia game_wiiu.rpx
+build_3ds2u_app.cmd game.3ds game_wiiu.rpx
+build_3ds2u_app.cmd game.cci game_wiiu.rpx
 ```
 
 The script resolves the input relative to the caller, switches to the project
@@ -16,6 +19,10 @@ the RPX contains its own RomFS bytes and needs no filesystem path to mount them.
 ## Extractor
 
 Run `build/extractor.exe path/to/game.3dsx` from the desired output directory.
+The `.cia` path uses native CBC/CTR decryption and `keys.txt`; see
+[CIA extraction](cia-extraction.md) for key entries and format limits. The
+following format/relocation details describe only the 3DSX path.
+Raw cartridges use the [NCSD adapter](ncsd-extraction.md) and the shared NCCH decoder.
 Version zero, flags zero, an at-least-0x20-byte header, and relocation headers
 with at least two word-sized counts are supported. The standard 0x2C extended
 header supplies bounded SMDH and RomFS offsets. SMDH icons are not packaged.
@@ -44,8 +51,8 @@ The source format and relocation semantics were checked against
 [devkitPro's 3dsxtool](https://github.com/devkitPro/3dstools/blob/master/src/3dsxtool.cpp)
 and [Azahar's loader](https://github.com/azahar-emu/azahar/blob/master/src/core/loader/3dsx.cpp).
 An NCCH magic at offset zero or the normal signed-header offset `0x100` produces
-a ctrtool/decryption warning and exit code 2. Other errors return 1; success is 0.
-Commercial inputs are never decrypted by this tool.
+an unsupported direct-NCCH message and exit code 2. Other errors return 1;
+success is 0. CIA containers use the separate native extraction path.
 
 ## Runtime package
 

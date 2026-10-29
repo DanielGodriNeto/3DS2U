@@ -1,4 +1,6 @@
 #include "three_dsx.hpp"
+#include "cia_extractor.hpp"
+#include "ncsd_extractor.hpp"
 #include "romfs_reader.hpp"
 #include <filesystem>
 #include <fstream>
@@ -51,11 +53,13 @@ void Package(std::span<const std::uint8_t> bytes) {
 } // namespace
 
 int main(int argc,char** argv) {
-    if (argc!=2) { std::cerr<<"Usage: extractor <input.3dsx>\n"; return 1; }
+    if (argc!=2) { std::cerr<<"Usage: extractor <input.3dsx|input.cia|input.3ds|input.cci>\n"; return 1; }
     try {
         const auto input=std::filesystem::weakly_canonical(argv[1]);
         for (const auto* output : {"extracted.code","extracted.exheader","extracted.romfs","extracted_romfs.cpp"})
-            if (input==std::filesystem::weakly_canonical(output)) throw std::runtime_error("Input aliases an extraction output");
+            if (input==std::filesystem::weakly_canonical(output) ||
+                (std::filesystem::exists(output) && std::filesystem::equivalent(input,output)))
+                throw std::runtime_error("Input aliases an extraction output");
         {
             std::ifstream probe(input,std::ios::binary);
             if (!probe) throw std::runtime_error("Cannot open input file");
@@ -63,12 +67,26 @@ int main(int argc,char** argv) {
             probe.read(reinterpret_cast<char*>(prefix.data()),static_cast<std::streamsize>(prefix.size()));
             const auto bytes=std::span{prefix}.first(static_cast<std::size_t>(probe.gcount()));
             if (Magic(bytes,0,"NCCH") || Magic(bytes,0x100,"NCCH")) {
-                std::cerr<<"[3DS2U Extractor] WARNING: Commercial NCCH/CXI extraction requires ctrtool and separately decrypted content.\n";
+                std::cerr<<"[3DS2U Extractor] Direct NCCH/CXI input is unsupported; provide a CIA, NCSD or 3DSX container.\n";
                 return 2;
             }
         }
-        const auto file=Read(input);
-        const auto image=extractor::Extract(file);
+        auto extension=input.extension().string();
+        for (auto& c:extension) if(c>='A' && c<='Z') c=static_cast<char>(c-'A'+'a');
+        extractor::Image image;
+        if (extension==".cia" || extension==".3ds" || extension==".cci") {
+            extractor::KeyStore keys;
+            if (std::filesystem::exists("keys.txt")) keys.LoadFile("keys.txt");
+            else std::cout<<"[3DS2U Extractor] keys.txt not found; encrypted content may require user-supplied keys.\n";
+            if (extension==".cia") {
+                std::cout<<"[3DS2U Extractor] Parsing CIA and decrypting its boot NCCH content\n";
+                image=extractor::CIAExtractor{}.ExtractFile(input,keys);
+            } else {
+                std::cout<<"[3DS2U Extractor] Parsing NCSD cartridge partition 0\n";
+                image=extractor::NCSDExtractor{}.ExtractFile(input,keys);
+            }
+        } else if (extension==".3dsx") image=extractor::Extract(Read(input));
+        else throw std::runtime_error("Unsupported input extension; expected .3dsx, .cia, .3ds or .cci");
         if (!image.romfs.empty()) {
             wiiu::RomFSReader validator;
             if (!validator.Mount(image.romfs)) throw std::runtime_error("Unsupported or invalid Level-3 RomFS: "+validator.GetLastError());
@@ -77,7 +95,7 @@ int main(int argc,char** argv) {
         Write("extracted.romfs",image.romfs); Package(image.romfs);
         std::cout<<"[3DS2U Extractor] .text: "<<image.text_size<<", .rodata: "<<image.rodata_size
                  <<", .data: "<<image.data_size<<", BSS: "<<image.bss_size<<" bytes\n"
-                 <<"[3DS2U Extractor] Applied "<<image.relocations<<" relocations at guest base 0x08000000\n"
+                 <<"[3DS2U Extractor] Applied relocations: "<<image.relocations<<"\n"
                  <<"[3DS2U Extractor] RomFS: "<<image.romfs.size()<<" bytes\n"
                  <<"[3DS2U Extractor] Wrote extracted.code, extracted.exheader, extracted.romfs and extracted_romfs.cpp\n";
         return 0;

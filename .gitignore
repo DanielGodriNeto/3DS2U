@@ -26,5 +26,7 @@ bin/
 # 3DS ROMs / Binaries (Do not track games)
 *.code
 *.3ds
+*.cci
 *.cia
 *.cxi
+keys.txt

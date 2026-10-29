@@ -31,7 +31,7 @@ Wii U/Cemu: block dispatcher + memory + GX2 + VPAD + HLE
 | CRO modules | Checked CRO0 segment mapping, named/indexed imports, ARM/Thumb relocations, shared heap reservations and explicit RO HLE helpers; execution requires pretranslated blocks |
 | Display transfer | RGBA8/RGB8/RGB565 conversion, linear/Morton blits and separate top-screen TV / bottom-screen DRC presentation |
 | Loader | Uncompressed ExeFS `.code` plus separate decrypted ExHeader; text/rodata/data and BSS mapping; raw instruction fixtures |
-| Extraction/package | Version-zero 3DSX extraction and relocation, generated section metadata, embedded Level-3 RomFS and a two-argument build pipeline |
+| Extraction/package | Native CIA/NCSD + shared NCCH/CTR/BLZ extraction and version-zero 3DSX relocation, generated section metadata, embedded Level-3 RomFS and a two-argument build pipeline |
 | Memory | Selectable 128/256 MiB O3DS/N3DS FCRAM aligned to 4 KiB; bounded accesses; guest little-endian data swapped on big-endian PPC |
 | Graphics | MVP PICA200-to-GX2 bridge: clear color, vertex buffer, stride/count, triangle draws; float24 uniforms, default matrix vertex shader and color pixel shader |
 | GPU command buffers | PICA packet parser, byte masks, FIFO/consecutive writes, FINALIZE and deferred draw snapshots through the MVP bridge |
@@ -56,8 +56,8 @@ registers. Service methods are not a general SVC/IPC interception layer.
 - devkitPro with **devkitPPC**, **wut**, **elf2rpl**, **GNU make**, and its MSYS
   shell installed.
 - Cemu or Wii U homebrew hardware for runtime validation.
-- An uncompressed `.3dsx` homebrew container for the unified pipeline. Manual
-  translation also accepts `.code` plus its matching decrypted ExHeader.
+- An uncompressed `.3dsx` or supported `.cia`/`.3ds`/`.cci` with required user-supplied
+  keys/seeds. Manual translation accepts `.code` plus its decrypted ExHeader.
 
 The master script uses these environment variables:
 
@@ -85,7 +85,7 @@ From the repository root in the MSVC developer command prompt:
 ```bat
 if not exist build mkdir build
 cl /nologo /std:c++20 /EHsc /W4 /WX /I translator\include translator\src\*.cpp /Fo:build\ /Fe:build\3ds2u_translator.exe
-cl /nologo /std:c++20 /EHsc /W4 /WX /I extractor\include /I wiiu_runtime\include extractor\src\*.cpp wiiu_runtime\src\romfs_reader.cpp /Fo:build\ /Fe:build\extractor.exe
+cl /nologo /std:c++20 /EHsc /W4 /WX /O2 /I extractor\include /I wiiu_runtime\include extractor\src\*.cpp wiiu_runtime\src\romfs_reader.cpp /Fo:build\ /Fe:build\extractor.exe
 ```
 
 The unified pipeline requires both executables; it does not rebuild host tools.
@@ -123,13 +123,18 @@ and [Thumb support](docs/thumb-support.md).
 
 ```bat
 build_3ds2u_app.cmd game.3dsx game_wiiu.rpx
+build_3ds2u_app.cmd game.cia game_wiiu.rpx
+build_3ds2u_app.cmd game.3ds game_wiiu.rpx
+build_3ds2u_app.cmd game.cci game_wiiu.rpx
 ```
 
-The two arguments are the input 3DSX and an output filename ending in `.rpx`,
+CIA/NCSD inputs load required user-supplied `keys.txt` entries from the project root; see [native CIA extraction](docs/cia-extraction.md).
+
+The two arguments are the input 3DSX/CIA/NCSD and an output filename ending in `.rpx`,
 without directory components. Quote paths containing spaces. Input paths resolve
 relative to the caller; the script builds from the project root.
 
-The pipeline checks prerequisites, extracts and relocates text/rodata/data,
+The pipeline checks prerequisites, extracts text/rodata/data (relocating 3DSX),
 generates section metadata, translates executable text, embeds the appended RomFS,
 and builds with devkitPPC/wut. Outputs are `build/game_wiiu.rpx` and a diagnostic
 `build/game_wiiu.romfs` sidecar. RomFS is embedded and mounted at startup, so the
@@ -220,15 +225,15 @@ Additional architecture notes: [graphics bridge](docs/graphics-mvp.md),
 [CRO modules and RO HLE](docs/cro-modules.md),
 [display transfer and dual screens](docs/display-transfer.md),
 [native AX audio](docs/audio-driver.md),
-[3DSX extraction and packaging](docs/extraction-pipeline.md),
+[3DSX extraction and packaging](docs/extraction-pipeline.md), [CIA decryption](docs/cia-extraction.md), [NCSD cartridges](docs/ncsd-extraction.md),
 [TEV combiner](docs/tev-combiner.md),
 [HID bridge](docs/hid-mvp.md), and [audio stubs](docs/audio-stubs.md).
 
 ## Current compatibility limits
 
-- ELF, compressed `.code`, compressed 3DSX and encrypted containers are unsupported.
-  The extractor accepts the documented version-zero 3DSX subset; NCCH/CXI inputs
-  require external extraction/decryption with tools such as ctrtool.
+- The extractor accepts version-zero 3DSX and documented CIA/NCSD/NCCH layouts
+  with caller-supplied keys/seeds. Direct NCCH/CXI, TWL/SHA1, personalized tickets,
+  ELF and compressed 3DSX remain unsupported; BLZ `.code` is handled during CIA extraction.
 - Instruction support is partial. IT and unimplemented T32/VFP forms are unsupported;
   automatic code/data separation and reachable-code discovery are absent.
 - Guest memory uses a flat O3DS 128 MiB or N3DS 256 MiB window starting at

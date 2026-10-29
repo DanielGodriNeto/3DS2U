@@ -33,7 +33,7 @@ if not exist "%WUT_ROOT%/lib/libwut.a" goto missing_toolchain
 if not exist "%DEVKITPRO%/tools/bin/elf2rpl.exe" goto missing_toolchain
 if not exist "%MAKE_EXE%" goto missing_toolchain
 if not exist "%DEVKITPRO%/msys2/usr/bin/sh.exe" goto missing_toolchain
-echo [3DS2U] [2/6] Extracting and relocating 3DSX segments and RomFS
+echo [3DS2U] [2/6] Extracting 3DSX/CIA/NCSD executable segments and RomFS
 "build\extractor.exe" "%INPUT_ROM%"
 if errorlevel 1 goto extraction_failed
 if not exist "extracted.code" goto extraction_failed
@@ -92,5 +92,5 @@ exit /b 1
 echo [3DS2U] ERROR: Output must be a filename ending in .rpx without a directory. 1>&2
 exit /b 1
 :usage
-echo Usage: build_3ds2u_app.cmd ^<input.3dsx^> ^<output.rpx^>
+echo Usage: build_3ds2u_app.cmd ^<input.3dsx^|input.cia^|input.3ds^|input.cci^> ^<output.rpx^>
 exit /b 1
