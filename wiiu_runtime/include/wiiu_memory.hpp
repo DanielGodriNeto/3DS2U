@@ -40,6 +40,8 @@ public:
     // Detach before destroying the audio owner; null preserves silent stub behavior.
     void SetAudioDriver(AudioDriver* audio) noexcept { audio_ = audio; }
     [[nodiscard]] const void* GetPointer(std::uint32_t addr, std::size_t size = 1) const;
+    // Maps a guest image range to a compact FCRAM backing range.
+    void MapImageRange(std::uint32_t guest_va, std::uint32_t image_offset, std::uint32_t size);
     void LoadImage(std::uint32_t addr, std::span<const std::uint8_t> bytes);
     void ClearRange(std::uint32_t addr, std::size_t size);
     // A draw command yields the cooperative CPU slice to presentation.
@@ -79,6 +81,9 @@ private:
     bool frame_requested_{};
     std::uint32_t image_end_ = kVirtualBase + kPageSize;
     bool gpu_access_allowed_ = true;
+    // Guest VA -> backing offset and mapped size. Image sections may use VAs
+    // below kVirtualBase while sharing the same FCRAM allocation.
+    std::map<std::uint32_t, std::pair<std::uint32_t, std::uint32_t>> image_ranges_;
     std::map<std::uint32_t, std::uint32_t> dynamic_ranges_;
 };
 

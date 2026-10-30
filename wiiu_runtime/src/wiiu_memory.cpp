@@ -7,6 +7,8 @@
 
 #include <bit>
 #include <cstring>
+#include <iterator>
+#include <limits>
 #include <new>
 #include <stdexcept>
 #include <algorithm>
@@ -70,6 +72,25 @@ const void* WiiUMemory::GetPointer(std::uint32_t addr, std::size_t size) const {
     return fcram_ + Offset(addr, size);
 }
 
+void WiiUMemory::MapImageRange(std::uint32_t guest_va, std::uint32_t image_offset,
+                               std::uint32_t size) {
+    if (size == 0 || guest_va > std::numeric_limits<std::uint32_t>::max() - size ||
+        image_offset > fcram_size_ || size > fcram_size_ - image_offset) {
+        throw std::out_of_range("Image mapping exceeds guest or FCRAM bounds");
+    }
+    const auto next = image_ranges_.lower_bound(guest_va);
+    if (next != image_ranges_.end() && guest_va + size > next->first) {
+        throw std::logic_error("Overlapping image mappings");
+    }
+    if (next != image_ranges_.begin()) {
+        const auto previous = std::prev(next);
+        if (previous->first + previous->second.second > guest_va) {
+            throw std::logic_error("Overlapping image mappings");
+        }
+    }
+    image_ranges_.emplace(guest_va, std::make_pair(image_offset, size));
+}
+
 void WiiUMemory::LoadImage(std::uint32_t addr, std::span<const std::uint8_t> bytes) {
     const auto offset = Offset(addr, bytes.size());
     if (!bytes.empty()) std::memcpy(fcram_ + offset, bytes.data(), bytes.size());
@@ -113,6 +134,15 @@ bool WiiUMemory::ReleaseDynamicRange(std::uint32_t address, std::uint32_t size) 
 }
 
 std::size_t WiiUMemory::Offset(std::uint32_t addr, std::size_t width) const {
+    const auto mapping = image_ranges_.upper_bound(addr);
+    if (mapping != image_ranges_.begin()) {
+        const auto& range = *std::prev(mapping);
+        const auto guest_offset = static_cast<std::size_t>(addr - range.first);
+        if (guest_offset <= range.second.second &&
+            width <= range.second.second - guest_offset) {
+            return static_cast<std::size_t>(range.second.first) + guest_offset;
+        }
+    }
     if (addr < kVirtualBase) {
         throw std::out_of_range("3DS address below FCRAM virtual window");
     }

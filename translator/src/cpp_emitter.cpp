@@ -195,6 +195,8 @@ bool CppEmitter::EmitTranslatedFile(
             std::size_t index = 0;
             for (const auto& section : image->GetSections()) {
                 if (section.mapped_size != 0) {
+                    output << "    memory.MapImageRange(" << section.virtual_address << "u, "
+                           << section.fcram_offset << "u, " << section.mapped_size << "u);\n";
                     output << "    memory.ReserveImageRange(" << section.virtual_address << "u, "
                            << section.mapped_size << "u);\n";
                     output << "    memory.ClearRange(" << section.virtual_address << "u, "

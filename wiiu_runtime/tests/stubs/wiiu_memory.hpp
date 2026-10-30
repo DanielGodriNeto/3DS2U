@@ -15,6 +15,7 @@ public:
     explicit WiiUMemory(Pica200& bridge) : WiiUMemory() { SetPica200(bridge); }
     void SetPica200(Pica200& bridge) { pica_ = &bridge; bridge.AttachMemory(*this); }
     void RequestFrame() noexcept { frame_requested_ = true; }
+    void MapImageRange(std::uint32_t, std::uint32_t, std::uint32_t) {}
     void ReserveImageRange(std::uint32_t address, std::size_t size) { (void)Offset(address, size); }
     bool ConsumeFrameRequest() noexcept {
         const bool result = frame_requested_;
