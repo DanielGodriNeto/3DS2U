@@ -3,7 +3,8 @@
 For architectural handoff and safe maintenance, start with the
 [maintainer guide](docs/maintainer-guide.md),
 [security and privacy policy](SECURITY.md), and
-[contribution workflow](CONTRIBUTING.md).
+[contribution workflow](CONTRIBUTING.md). Agent-specific repository rules are
+in [AGENTS.md](AGENTS.md).
 
 3DS2U is an experimental **3DS ARM11 to Wii U PowerPC ahead-of-time (AOT)
 static recompiler**. A PC tool converts supported ARM/Thumb instructions into
@@ -13,6 +14,23 @@ on Wii U and provides guest memory, graphics, input, and placeholder OS services
 The current deliverable is a visual MVP and buildable `.rpx`, not a general
 3DS emulator or a production-compatible game converter. Successful translation
 and linking do not establish that a real game boots or that GPU output is correct.
+
+## Repository map and workflow
+
+The host pipeline is split into `extractor/` and `translator/`. The extractor
+turns supported 3DSX/CIA/NCSD inputs into bounded executable sections,
+metadata and an embedded RomFS. The translator decodes selected ARM32,
+Thumb-16/Thumb-32 and VFP forms, builds a mode-aware CFG and emits C++20.
+`wiiu_runtime/` supplies the Wii U dispatcher and the project-specific memory,
+graphics, input, audio, filesystem and HLE bridges. Detailed invariants and
+handoff procedures are in [docs/maintainer-guide.md](docs/maintainer-guide.md).
+
+Use synthetic fixtures and decrypted `.code`/ExHeader test inputs that you are
+authorized to use. Do not commit keys, seeds, firmware, commercial binaries,
+personal logs or generated build output. Run host validation before cross
+compilation, keep unified builds serial, and distinguish host, Cemu and
+hardware evidence. See [AGENTS.md](AGENTS.md) for contributor and AI-agent
+requirements.
 
 ## Architecture and features
 
@@ -252,4 +270,3 @@ Additional architecture notes: [graphics bridge](docs/graphics-mvp.md),
   IPC are not implemented; real game audio is not automatically intercepted.
 - Execution is cooperatively sliced rather than synchronized to a complete 3DS
   interrupt, VBlank, GPU or OS scheduling model.
-

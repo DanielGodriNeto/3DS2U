@@ -1,10 +1,11 @@
 # Contributing
 
-Read `README.md`, `docs/maintainer-guide.md` and `SECURITY.md` first. Use synthetic
-fixtures rather than commercial binaries or private hardware logs. Preserve
-existing authorship/identity and third-party attribution. No project-wide license
-file is currently present; maintainers must settle distribution permissions before
-publishing a licensed release. Do not infer a license or remove attribution.
+Read `README.md`, `AGENTS.md`, `docs/maintainer-guide.md` and `SECURITY.md`
+first. Use synthetic fixtures rather than commercial binaries or private
+hardware logs. Preserve existing authorship/identity and third-party attribution.
+The repository root contains the current MIT license for the project code;
+dependency and upstream license notices remain authoritative for their files.
+Do not infer a broader license for Nintendo-derived assets or remove attribution.
 
 ## Development workflow
 
