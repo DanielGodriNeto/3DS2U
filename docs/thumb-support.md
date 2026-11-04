@@ -27,9 +27,12 @@ Supported T16 forms:
 ARM BX, BLX register/immediate, and LDM-to-PC also exchange execution state.
 `CPUContext::thumb` holds state independently of the four CPSR flags. Architectural
 PCs are even; `DispatchKey` tags Thumb table entries with bit zero. This permits
-ARM and Thumb blocks at the same canonical address. Dispatcher initialization
-selects the mode of the lowest emitted block; callers using another entry can
-set CPU state or pass a Thumb-tagged address to `Run`.
+ARM and Thumb blocks at the same canonical address. For images, dispatcher
+initialization sets the PC and mode from the translated block at the ExHeader entry,
+and the translator rejects an entry with no block or with both ARM and Thumb blocks.
+Without an image (the image-less emitter path used by the host SVC tests), the mode
+of the lowest emitted block is used. Callers using another entry can set CPU state or pass
+a Thumb-tagged address to `Run`.
 
 Selected T32 long calls, ALU/shift and byte/word memory instructions are now
 implemented; see [VFP and T32](vfp-thumb32.md). IT, other omitted T16/T32 forms,

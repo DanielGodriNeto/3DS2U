@@ -133,9 +133,11 @@ keys but do not establish provenance.
 
 Extracted code/RomFS are held in RAM, and the existing C++ asset package can be
 very large. Translation remains limited by the translator's address ranges,
-instruction support, code/data separation and runtime services. In particular,
-successfully extracting retail `.text` at `0x00100000` does not automatically
-adapt the current runtime entry at `0x08000000`.
+instruction support, code/data separation and runtime services. The emitted
+dispatcher enters the ExHeader `.text` address, so retail `.text` at `0x00100000`
+is entered there when it has a translated block; translation rejects an image whose
+entry has none. Whether a given title then runs is unverified: later unsupported
+instructions, SVCs, services or data accesses are expected failures.
 
 AES CTR/CBC tests use public [NIST SP 800-38A vectors](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38a.pdf).
 Counter layouts and metadata field interpretation were checked against the

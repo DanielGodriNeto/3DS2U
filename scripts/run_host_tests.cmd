@@ -31,6 +31,10 @@ if errorlevel 1 goto failed
 if errorlevel 1 goto failed
 build\binary_loader_tests.exe build\exefs-loader-tests
 if errorlevel 1 goto failed
+%CXX% translator\tests\entry_dispatch_tests.cpp %TRANSLATORS% translator\src\binary_loader.cpp translator\src\decoder.cpp /Fe:build\entry_dispatch_tests.exe
+if errorlevel 1 goto failed
+build\entry_dispatch_tests.exe build\entry-dispatch-tests
+if errorlevel 1 goto failed
 %CXX% translator\tests\memory_addressing_tests.cpp %TRANSLATORS% /Fe:build\memory_addressing_tests.exe
 if errorlevel 1 goto failed
 build\memory_addressing_tests.exe build\memory_addressing_execution.cpp build\memory_addressing_blocks.cpp

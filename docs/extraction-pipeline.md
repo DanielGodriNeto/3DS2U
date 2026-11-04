@@ -39,7 +39,7 @@ The extractor writes:
 
 The data size in 3DSX includes BSS; those trailing bytes are absent from the file.
 Segments retain their original page-rounded relative placement and are relocated
-to `0x08000000`, the current runtime entry. Absolute and cross-segment relative
+to `0x08000000`, the entry the emitted dispatcher uses for 3DSX images. Absolute and cross-segment relative
 word relocation runs are parsed as skip/patch counts. Relative subtype zero emits
 32-bit differences; subtype one emits PREL31 differences. Tagged Thumb pointers
 are preserved. Duplicate/out-of-range patches, nonempty unknown relocation kinds,

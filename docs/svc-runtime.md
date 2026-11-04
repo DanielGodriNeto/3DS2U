@@ -12,6 +12,15 @@ calls `ReserveImageRange`; old generated files should be regenerated. The heap
 starts at the first page after the highest reserved image address. Without image
 metadata the first FCRAM page is reserved as a minimum entry-point guard.
 
+Image output sets `r[15]` and the Thumb flag from the translated block at the
+parsed ExHeader entry, so retail `.text` is not forced to `0x08000000`. If that
+entry has neither an ARM nor a Thumb block, or has both, the translator reports
+`entry point 0x... has no translated block` (or `has both ARM and Thumb translated
+blocks`) and writes no output file. At runtime, `DispatchOne` never calls a missing
+block: it logs the guest PC, mode (`ARM`/`Thumb`), lookup key and registered block
+count, then halts the main CPU. The line compares against the translator
+`Entry point` line. Old generated sources predate this and leave `r[15]` at 0.
+
 ## Architectural SVC numbers
 
 The libctru wrappers use **0x22 for ArbitrateAddress**, **0x24 for
@@ -93,7 +102,14 @@ thread, not a guest worker.
 
 `translator/tests/svc_emitter_tests.cpp` produces real ARM, conditional ARM and
 T16 SVC bodies; `wiiu_runtime/tests/svc_tests.cpp` executes them with the production
-engine/memory/kernel code. Host CoreInit substitutes create actual host threads
+engine/memory/kernel code. `translator/tests/entry_dispatch_tests.cpp` checks ARM,
+Thumb and raw entry emission, and rejection of missing or ambiguous entry blocks
+using synthetic ExHeaders. `wiiu_runtime/tests/dispatch_entry_tests.cpp` checks
+entry dispatch, mode, and the halt diagnostic for a missing block with synthetic
+blocks that touch no guest memory. Both are host-only, and the runtime test is not in
+`scripts/run_host_tests.cmd`. The missing-block diagnostic partially addresses the
+boot-crash report: the reporter's binary was not available, and no Wii U or Cemu run
+verified that a title boots. Host CoreInit substitutes create actual host threads
 and events. Tests check allocation boundaries/reuse, arbitration FIFO signaling,
 timeouts, one-shot events, stack alignment, thread ABI/priority, create failure,
 worker waits, exit and waking/joining a parked worker on shutdown.

@@ -261,8 +261,11 @@ Additional architecture notes: [graphics bridge](docs/graphics-mvp.md),
   automatic code/data separation and reachable-code discovery are absent.
 - Guest memory uses a flat O3DS 128 MiB or N3DS 256 MiB window starting at
   `0x08000000`. General MMU mappings and full system services remain incomplete.
-- The runtime entry currently starts at `0x08000000`. The loader logs the ExHeader
-  text address, but other runtime entry addresses require integration changes.
+- The emitted dispatcher starts at the entry parsed from the ExHeader `.text` (or
+  `0x08000000` for raw code and 3DSX). A missing translated block at that entry fails
+  translation; a runtime miss halts with mode, key and block count. Host tests use
+  synthetic fixtures only. Partial fix for the missing-block boot failure: the
+  reporter's binary was not available, so whether a retail title now boots is unverified.
 - The geometry bridge expects LE float3 position plus float4 color and custom
   draw registers. It does not implement retail PICA command streams or shaders.
 - Native AX playback supports explicit mono buffer submissions. Full CSND command

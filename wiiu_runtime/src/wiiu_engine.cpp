@@ -37,7 +37,12 @@ bool WiiUEngine::DispatchOne(arm11::CPUContext& context) {
         const auto key = arm11::DispatchKey({context.r[15], context.thumb ? arm11::InstructionSet::Thumb : arm11::InstructionSet::ARM});
         const auto it = block_table.find(key);
         if (it == block_table.end()) {
-            OSReport("[3DS2U] Fatal: no translated block at PC 0x%08" PRIX32 "\n", context.r[15]);
+            // Logs carry only guest PC, mode, key and block count; no host paths.
+            OSReport("[3DS2U] Fatal: no translated block at PC 0x%08" PRIX32
+                     " (mode %s, lookup key 0x%08" PRIX32 ", %u blocks registered)."
+                     " Compare with the translator 'Entry point' line.\n",
+                     context.r[15], context.thumb ? "Thumb" : "ARM", key,
+                     static_cast<unsigned>(block_table.size()));
             if (&context == &cpu) halted_ = true;
             unlock(); return false;
         }

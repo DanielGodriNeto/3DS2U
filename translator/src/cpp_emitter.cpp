@@ -33,6 +33,22 @@ std::string BlockName(const BasicBlock& block) {
            HexAddress(block.start_address);
 }
 
+// The image entry must name exactly one translated block, in ARM or Thumb mode.
+CodeLocation ResolveEntryBlock(const std::unordered_map<std::uint32_t, BasicBlock>& cfg,
+                               std::uint32_t entry) {
+    const bool arm = cfg.contains(DispatchKey({entry, InstructionSet::ARM}));
+    const bool thumb = cfg.contains(DispatchKey({entry, InstructionSet::Thumb}));
+    if (arm && thumb) {
+        throw std::runtime_error("entry point 0x" + HexAddress(entry) +
+                                 " has both ARM and Thumb translated blocks");
+    }
+    if (!arm && !thumb) {
+        throw std::runtime_error("entry point 0x" + HexAddress(entry) +
+                                 " has no translated block; check that .text decodes at the entry");
+    }
+    return {entry, arm ? InstructionSet::ARM : InstructionSet::Thumb};
+}
+
 // Keep every statement of a translated instruction under the same condition.
 void EmitInstruction(std::ostream& output, const std::string& translated,
                      const std::string& condition) {
@@ -71,6 +87,8 @@ bool CppEmitter::EmitTranslatedFile(
                             (inst.opcode & 0x0F000000u) == 0x0F000000u;
         }
         std::sort(addresses.begin(), addresses.end());
+        // Resolve before opening the output so a rejected entry leaves no file behind.
+        const auto entry = image != nullptr ? ResolveEntryBlock(cfg, image->GetEntryPoint()) : CodeLocation{};
 
         // Stream exceptions cover open, write, flush, and close failures.
         std::ofstream output;
@@ -213,7 +231,12 @@ bool CppEmitter::EmitTranslatedFile(
             output << "    engine.RegisterBlock(0x" << HexAddress(address)
                    << "u, &arm11::" << BlockName(cfg.at(address)) << ");\n";
         }
-        if (!addresses.empty()) {
+        if (image != nullptr) {
+            // The parsed image entry replaces any runtime-side startup address.
+            output << "    engine.GetCPU().r[15] = 0x" << HexAddress(entry.address) << "u;\n"
+                   << "    engine.GetCPU().thumb = "
+                   << (entry.state == InstructionSet::Thumb ? "true" : "false") << ";\n";
+        } else if (!addresses.empty()) {
             output << "    engine.GetCPU().thumb = "
                    << (cfg.at(addresses.front()).start.state == InstructionSet::Thumb ? "true" : "false")
                    << ";\n";
