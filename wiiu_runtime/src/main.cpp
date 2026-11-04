@@ -92,7 +92,6 @@ int main(int argc, char** argv) {
             throw std::runtime_error("aptInit failed");
         }
         apt_initialized = true;
-        cpu.r[15] = 0x08000000u;
 
         while (WHBProcIsRunning() && services.aptMainLoop()) {
             gx2.BeginFrame();

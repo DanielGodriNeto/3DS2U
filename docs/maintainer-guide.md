@@ -46,8 +46,12 @@ disposable; only `wiiu_runtime/src/*.cpp` enters the runtime Makefile.
    `InitDispatcher(wiiu::WiiUEngine&)`. Block arguments are CPUContext and
    WiiUMemory. Generated memory statements use the block's `memory` reference.
 5. The dispatcher maps image sections, reserves/zeros backing including BSS,
-   loads initialized bytes, registers block functions and sets the entry PC/mode.
-   Runtime `main` must not overwrite that parsed entry point.
+   loads initialized bytes, registers block functions and sets the entry PC/mode
+   from the translated block at the parsed ExHeader entry. Emission fails before
+   writing the output if that entry has no block, or both ARM and Thumb blocks.
+   Runtime `main` must not overwrite that parsed entry point; it passes `cpu.r[15]`
+   to `Run`. Regenerate sources after a runtime or translator update, because old
+   generated files leave the PC at 0.
 6. The generated RomFS source supplies `GetPackagedRomFS()`; `packaged_romfs.cpp`
    provides a weak empty fallback. Main mounts embedded Level-3 RomFS. A new
    missing-RomFS build must replace old assets with an empty package.
@@ -122,7 +126,7 @@ for reproducible fresh image builds. Manual builds can retain stale assets.
 | ExHeader/ExeFS hash mismatch | Exact crypto layer, requested key slot, plaintext detection, metadata integrity |
 | Nonsensical decoded branches | BLZ output, mode selection, embedded data, PC semantics; do not hide missing blocks |
 | Address below FCRAM | Image VA mapping emitted/installed, current host-tool version, actual faulting address |
-| No translated block | Last guest target/mode, CFG boundaries, unsupported control flow, CRO/dynamic code |
+| No translated block | Compare the translator `Entry point` line with the runtime `Fatal: no translated block` PC, mode and lookup key; a stale generated source may lack the entry. Then check CFG boundaries, unsupported control flow, CRO/dynamic code |
 | Long quiet compile | Source size, compiler CPU/RAM, generated optimization setting; no fixed completion time |
 | Black screen | Read redacted runtime termination/PC logs before attributing failure to graphics |
 | Device Guard/Defender blocks a test | Record the blocked check; obtain approved execution, do not evade controls |
