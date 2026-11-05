@@ -45,11 +45,10 @@ if not exist "extracted.romfs" goto extraction_failed
 if not exist "extracted_romfs.cpp" goto extraction_failed
 echo [3DS2U] [3/6] Translating executable text to C++
 rem Metadata prevents rodata, data and BSS from being decoded as instructions.
-"build\3ds2u_translator.exe" "extracted.code" "output_translated.cpp" --exheader "extracted.exheader"
+rem Bounded units keep each compile small; the translator also removes stale translated_game_blocks_*.cpp.
+"build\3ds2u_translator.exe" "extracted.code" "wiiu_runtime\src\translated_game.cpp" --exheader "extracted.exheader" --split-instructions 4000
 if errorlevel 1 goto translation_failed
 echo [3DS2U] [4/6] Installing translated code and embedded RomFS
-copy /Y "output_translated.cpp" "wiiu_runtime\src\translated_game.cpp" >nul
-if errorlevel 1 goto copy_failed
 copy /Y "extracted_romfs.cpp" "wiiu_runtime\src\generated_romfs.cpp" >nul
 if errorlevel 1 goto copy_failed
 echo [3DS2U] [5/6] Building with devkitPPC and wut

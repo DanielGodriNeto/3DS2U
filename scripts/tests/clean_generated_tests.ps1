@@ -8,6 +8,8 @@ $generated = @(
     'extracted.code', 'extracted.exheader', 'extracted.romfs', 'extracted_romfs.cpp',
     'output_translated.cpp', 'code.bin', 'translated_game.cpp',
     'wiiu_runtime/src/translated_game.cpp', 'wiiu_runtime/src/generated_romfs.cpp',
+    'wiiu_runtime/src/translated_game_blocks_0000.cpp', 'wiiu_runtime/src/translated_game_blocks_0012.cpp',
+    'wiiu_runtime/src/translated_game.cpp.3ds2u-tmp',
     'build/nes_remix_wiiu.rpx', 'build/nes_remix_wiiu.romfs',
     'build/runtime/translated_game.o', 'build/runtime/main.d',
     'build/runtime/wiiu_runtime.elf', 'build/runtime/wiiu_runtime.rpx'
@@ -15,6 +17,8 @@ $generated = @(
 $preserved = @(
     'build_3ds2u_app.cmd', 'nes_remix.3ds', 'keys.txt', 'wiiu_runtime/src/main.cpp',
     'wiiu_runtime/src/packaged_romfs.cpp', 'build/extractor.exe',
+    'wiiu_runtime/src/translated_game_blocks_12x.cpp', 'wiiu_runtime/src/translated_game_blocks_0003.cpp.bak',
+    'wiiu_runtime/src/translated_game_notes.cpp',
     'build/3ds2u_translator.exe', 'build/other_game.rpx', 'build/runtime/notes.txt'
 )
 foreach ($path in ($generated + $preserved)) {

@@ -110,13 +110,38 @@ python scripts/audit_repository.py --scope working
 python scripts/audit_repository.py --scope history
 ```
 
-Generated `translated_game.cpp` currently remains one large translation unit.
-The Makefile appends `TRANSLATED_OPT=-O0` by default to reduce optimization cost;
-handwritten runtime files retain `-O2`. This trades runtime speed for bring-up
-time. Splitting generated translation units and compact asset packaging are
-pending. Binary-to-C++ RomFS arrays can also make compilation very expensive.
+### Split translated units
+
+`3ds2u_translator ... --split-instructions N` bounds each generated translation
+unit to about `N` instructions (a block is never split; one larger block gets its
+own unit; at most 10000 units). The unified build uses `N=4000`. Output:
+
+- `translated_game.cpp`: image data and `InitDispatcher`, which calls
+  `arm11::RegisterTranslatedBlocksNNNN(engine)` for each unit in order, then sets
+  the entry PC/mode exactly as the single-file output does.
+- `translated_game_blocks_NNNN.cpp`: block functions (internal linkage) and one
+  registration function. `svc_handler.hpp` is included only where an SVC exists.
+
+Without the option the translator writes one file exactly as before. Block order
+and keys are deterministic, so generating twice gives identical files. The
+translator streams every file to `<name>.3ds2u-tmp`, re-reads them to check that
+each block key is registered exactly once, and only then renames them into place
+(files whose bytes are unchanged keep their timestamp). It removes stale
+`<stem>_blocks_<digits>.cpp` regular files in the output directory; a directory
+or link with such a name makes the run fail. Progress is printed to stdout as
+plain lines (`[3DS2U] progress phase=emit-units 3/12 units, ...`) with no terminal
+control sequences; a failure prints `progress FAILED phase=...` and exits 1, and
+`phase=complete` is printed only after every unit is published. The Makefile
+compiles all `src/*.cpp`, so chunks need no Makefile change; `-O2` still applies
+to every source (the older `TRANSLATED_OPT` variable does not exist).
+
+RomFS is packaged by `extractor/include/romfs_source.hpp` as `"\xNN"` string
+literals instead of a `0xNN,` list: about 20% less source and faster to compile,
+but more peak compiler memory (see the pull request for measured numbers).
 The unified workflow cleans runtime objects, so incremental speed is sacrificed
 for reproducible fresh image builds. Manual builds can retain stale assets.
+Tests: `translator/tests/split_units_tests.cpp`, `split_exec_driver.cpp` (split
+vs unsplit execution compare) and `extractor/tests/romfs_source_tests.cpp`.
 
 ## Troubleshooting
 
@@ -127,7 +152,7 @@ for reproducible fresh image builds. Manual builds can retain stale assets.
 | Nonsensical decoded branches | BLZ output, mode selection, embedded data, PC semantics; do not hide missing blocks |
 | Address below FCRAM | Image VA mapping emitted/installed, current host-tool version, actual faulting address |
 | No translated block | Compare the translator `Entry point` line with the runtime `Fatal: no translated block` PC, mode and lookup key; a stale generated source may lack the entry. Then check CFG boundaries, unsupported control flow, CRO/dynamic code |
-| Long quiet compile | Source size, compiler CPU/RAM, generated optimization setting; no fixed completion time |
+| Long compile | Source size, compiler CPU/RAM; the translator prints unit progress lines, so a stall inside one `translated_game_blocks_NNNN.cpp` points at that unit; lower `--split-instructions` to shrink units |
 | Black screen | Read redacted runtime termination/PC logs before attributing failure to graphics |
 | Device Guard/Defender blocks a test | Record the blocked check; obtain approved execution, do not evade controls |
 
