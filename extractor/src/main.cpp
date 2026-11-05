@@ -1,6 +1,7 @@
 #include "cia_extractor.hpp"
 #include "ncsd_extractor.hpp"
 #include "romfs_reader.hpp"
+#include "romfs_source.hpp"
 #include "three_dsx.hpp"
 #include <algorithm>
 #include <array>
@@ -43,20 +44,7 @@ void Package(std::span<const std::uint8_t> bytes) {
     std::ofstream out;
     out.exceptions(std::ios::failbit | std::ios::badbit);
     out.open("extracted_romfs.cpp", std::ios::trunc);
-    out << "// Generated RomFS package; bytes remain in guest little-endian order.\n"
-           "#include \"packaged_romfs.hpp\"\nnamespace wiiu {\n";
-    if (!bytes.empty()) {
-        out << "namespace { alignas(32) const std::uint8_t image[] = {\n";
-        constexpr char hex[] = "0123456789ABCDEF";
-        for (std::size_t i = 0; i < bytes.size(); ++i) {
-            out << "0x" << hex[bytes[i] >> 4] << hex[bytes[i] & 15] << ',';
-            if ((i & 15u) == 15)
-                out << '\n';
-        }
-        out << "\n}; }\nstd::span<const std::uint8_t> GetPackagedRomFS() noexcept { return image; }\n";
-    } else
-        out << "std::span<const std::uint8_t> GetPackagedRomFS() noexcept { return {}; }\n";
-    out << "} // namespace wiiu\n";
+    extractor::WriteRomFSSource(out, bytes);
     out.close();
 }
 } // namespace
