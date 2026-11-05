@@ -12,7 +12,7 @@ if not exist build mkdir build
 set "CXX=cl /nologo /std:c++20 /EHsc /W4 /WX /I extractor\include /I translator\include /I wiiu_runtime\include /Fo:build\"
 set "CRYPTO=extractor\src\crypto_engine.cpp extractor\src\key_store.cpp"
 set "CONTAINERS=extractor\src\ncch_extractor.cpp translator\src\binary_loader.cpp wiiu_runtime\src\romfs_reader.cpp"
-set "TRANSLATORS=translator\src\vfp_translator.cpp translator\src\cpp_emitter.cpp translator\src\cfg_builder.cpp translator\src\thumb_translator.cpp translator\src\alu_translator.cpp translator\src\branch_translator.cpp translator\src\cond_evaluator.cpp translator\src\mem_translator.cpp"
+set "TRANSLATORS=translator\src\vfp_translator.cpp translator\src\cpp_emitter.cpp translator\src\progress_sink.cpp translator\src\unit_publisher.cpp translator\src\cfg_builder.cpp translator\src\thumb_translator.cpp translator\src\alu_translator.cpp translator\src\branch_translator.cpp translator\src\cond_evaluator.cpp translator\src\mem_translator.cpp"
 
 %CXX% extractor\tests\crypto_tests.cpp extractor\src\crypto_engine.cpp /Fe:build\crypto_tests.exe
 if errorlevel 1 goto failed
@@ -59,6 +59,21 @@ if errorlevel 1 goto failed
 %CXX% build\thumb32_execution.cpp /Fe:build\thumb32_execution.exe
 if errorlevel 1 goto failed
 build\thumb32_execution.exe
+if errorlevel 1 goto failed
+%CXX% translator\tests\split_units_tests.cpp %TRANSLATORS% translator\src\binary_loader.cpp translator\src\decoder.cpp /Fe:build\split_units_tests.exe
+if errorlevel 1 goto failed
+build\split_units_tests.exe build\split-units
+if errorlevel 1 goto failed
+%CXX% translator\src\main.cpp %TRANSLATORS% translator\src\binary_loader.cpp translator\src\decoder.cpp /Fe:build\3ds2u_translator.exe
+if errorlevel 1 goto failed
+%CXX% translator\tests\split_cli_tests.cpp /Fe:build\split_cli_tests.exe
+if errorlevel 1 goto failed
+build\split_cli_tests.exe build\3ds2u_translator.exe build\split-cli
+if errorlevel 1 goto failed
+rem Exec tests build generated files with g++ (not cl); g++ must be on PATH.
+%CXX% translator\tests\split_exec_tests.cpp /Fe:build\split_exec_tests.exe
+if errorlevel 1 goto failed
+build\split_exec_tests.exe build\3ds2u_translator.exe build\split-exec . g++
 if errorlevel 1 goto failed
 echo Host parser and generated-code execution tests passed.
 popd

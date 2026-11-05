@@ -8,6 +8,8 @@ extracted.romfs
 extracted_romfs.cpp
 wiiu_runtime/src/generated_romfs.cpp
 wiiu_runtime/src/translated_game.cpp
+wiiu_runtime/src/translated_game_blocks_*.cpp
+*.3ds2u-tmp
 bin/
 *.o
 *.exe

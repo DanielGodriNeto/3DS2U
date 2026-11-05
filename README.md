@@ -134,6 +134,10 @@ build\3ds2u_translator.exe game.code game.cpp --exheader game.exheader --thumb-r
 ```
 
 Repeat `--thumb-range address:size` for additional nonoverlapping ranges.
+
+Add `--split-instructions N` (N from 1) to write `translated_game_blocks_NNNN.cpp` units of about N
+instructions next to the main file instead of one huge source. Copy the main file and every
+`*_blocks_*.cpp` into `wiiu_runtime/src/` together (the unified build does this for you).
 Addresses and sizes accept decimal or `0x` notation. ExHeader metadata does not
 identify ARM/Thumb boundaries or literal pools; ranges must be supplied explicitly.
 
