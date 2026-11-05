@@ -8,7 +8,6 @@
 #include <bit>
 #include <cstring>
 #include <iterator>
-#include <limits>
 #include <new>
 #include <stdexcept>
 #include <algorithm>
@@ -47,6 +46,15 @@ std::uint16_t GuestEndian(std::uint16_t value) noexcept {
 #endif
     }
 }
+// True when [begin, end) intersects any half-open range keyed by its start.
+template <typename Map, typename SizeOf>
+bool OverlapsAny(const Map& ranges, std::uint32_t begin, std::uint64_t end, SizeOf size_of) {
+    const auto next = ranges.lower_bound(begin);
+    if (next != ranges.end() && next->first < end) return true;
+    if (next == ranges.begin()) return false;
+    const auto previous = std::prev(next);
+    return std::uint64_t{previous->first} + size_of(previous->second) > begin;
+}
 } // namespace
 
 WiiUMemory::WiiUMemory(bool is_new_3ds)
@@ -72,23 +80,60 @@ const void* WiiUMemory::GetPointer(std::uint32_t addr, std::size_t size) const {
     return fcram_ + Offset(addr, size);
 }
 
-void WiiUMemory::MapImageRange(std::uint32_t guest_va, std::uint32_t image_offset,
-                               std::uint32_t size) {
-    if (size == 0 || guest_va > std::numeric_limits<std::uint32_t>::max() - size ||
-        image_offset > fcram_size_ || size > fcram_size_ - image_offset) {
-        throw std::out_of_range("Image mapping exceeds guest or FCRAM bounds");
+void WiiUMemory::ValidateImageMapping(std::uint32_t guest_va, std::uint32_t image_offset,
+                                      std::uint32_t size) const {
+    // All sums use 64 bits so a hostile range cannot wrap before it is checked.
+    const std::uint64_t va_end = std::uint64_t{guest_va} + size;
+    const std::uint64_t backing_end = std::uint64_t{image_offset} + size;
+    if (size == 0) throw std::out_of_range("Image mapping size is zero");
+    if (((guest_va | image_offset | size) & (kPageSize - 1u)) != 0) {
+        throw std::out_of_range("Image mapping is not page aligned");
     }
-    const auto next = image_ranges_.lower_bound(guest_va);
-    if (next != image_ranges_.end() && guest_va + size > next->first) {
+    if (va_end > (std::uint64_t{1} << 32)) {
+        throw std::out_of_range("Image mapping exceeds the 32-bit guest address space");
+    }
+    if (backing_end > fcram_size_) throw std::out_of_range("Image mapping exceeds FCRAM backing");
+    // A range inside the canonical window must name its own backing, otherwise
+    // one guest address would resolve to two different FCRAM bytes.
+    const bool identity = std::uint64_t{guest_va} == std::uint64_t{kVirtualBase} + image_offset;
+    if (!identity && guest_va < GetVirtualEnd() && va_end > kVirtualBase) {
+        throw std::logic_error("Image mapping overlaps the canonical FCRAM window");
+    }
+    if (OverlapsAny(image_ranges_, guest_va, va_end,
+                    [](const MappedRange& range) { return range.size; })) {
         throw std::logic_error("Overlapping image mappings");
     }
-    if (next != image_ranges_.begin()) {
-        const auto previous = std::prev(next);
-        if (previous->first + previous->second.second > guest_va) {
-            throw std::logic_error("Overlapping image mappings");
+    if (OverlapsAny(image_backing_, image_offset, backing_end,
+                    [](std::uint32_t length) { return length; })) {
+        throw std::logic_error("Image mappings share FCRAM backing");
+    }
+    for (const auto& [address, length] : dynamic_ranges_) {
+        const std::uint64_t begin = address - kVirtualBase;
+        if (image_offset < begin + length && begin < backing_end) {
+            throw std::logic_error("Image mapping backing overlaps a dynamic range");
         }
     }
-    image_ranges_.emplace(guest_va, std::make_pair(image_offset, size));
+    // Once heap ranges exist, FindFreeRange/ReserveDynamicRange only trust image_end_,
+    // so new backing must already lie below it.
+    if (!dynamic_ranges_.empty() && std::uint64_t{kVirtualBase} + backing_end > image_end_) {
+        throw std::logic_error("Reserve images before dynamic allocations");
+    }
+}
+
+void WiiUMemory::MapImageRange(std::uint32_t guest_va, std::uint32_t image_offset,
+                               std::uint32_t size) {
+    ValidateImageMapping(guest_va, image_offset, size);
+    image_ranges_.emplace(guest_va, MappedRange{image_offset, size});
+    try {
+        image_backing_.emplace(image_offset, size);
+    } catch (...) {
+        image_ranges_.erase(guest_va); // Keep the two tables in step if allocation fails.
+        throw;
+    }
+    // Mapped backing is never handed out as heap, even if ReserveImageRange is skipped.
+    if (dynamic_ranges_.empty()) {
+        image_end_ = std::max(image_end_, kVirtualBase + image_offset + size);
+    }
 }
 
 void WiiUMemory::LoadImage(std::uint32_t addr, std::span<const std::uint8_t> bytes) {
@@ -136,15 +181,22 @@ bool WiiUMemory::ReleaseDynamicRange(std::uint32_t address, std::uint32_t size) 
 std::size_t WiiUMemory::Offset(std::uint32_t addr, std::size_t width) const {
     const auto mapping = image_ranges_.upper_bound(addr);
     if (mapping != image_ranges_.begin()) {
-        const auto& range = *std::prev(mapping);
-        const auto guest_offset = static_cast<std::size_t>(addr - range.first);
-        if (guest_offset <= range.second.second &&
-            width <= range.second.second - guest_offset) {
-            return static_cast<std::size_t>(range.second.first) + guest_offset;
+        const auto& [guest_va, range] = *std::prev(mapping);
+        const std::uint64_t guest_offset = std::uint64_t{addr} - guest_va;
+        // A zero-width access exactly at the end of a mapping is still allowed.
+        if (guest_offset <= range.size) {
+            if (width <= range.size - guest_offset) {
+                return static_cast<std::size_t>(range.image_offset + guest_offset);
+            }
+            // Identity mappings continue into the canonical window; others must not.
+            const bool identity = std::uint64_t{guest_va} == std::uint64_t{kVirtualBase} + range.image_offset;
+            if (guest_offset < range.size && !identity) {
+                throw std::out_of_range("3DS access straddles the end of a guest image mapping");
+            }
         }
     }
     if (addr < kVirtualBase) {
-        throw std::out_of_range("3DS address below FCRAM virtual window");
+        throw std::out_of_range("3DS address is unmapped below the FCRAM virtual window");
     }
     const auto offset = static_cast<std::size_t>(addr - kVirtualBase);
     // Check by subtraction so a wrapping guest address cannot pass the bounds.

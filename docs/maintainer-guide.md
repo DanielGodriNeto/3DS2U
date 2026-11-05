@@ -67,7 +67,9 @@ runtime never updates an old host tool. Close Cemu before replacing an RPX.
   raw byte buffers retain their guest order. MMIO passes numeric values directly.
 - O3DS/N3DS backing is 128/256 MiB, aligned to 4 KiB, with a canonical window at
   `0x08000000`. Generated low image VAs map to compact backing via MapImageRange;
-  this is not a general page table. Heap reservations protect image/BSS backing.
+  this is not a page table with permissions or faults (invariants in
+  [guest-memory-mapping.md](guest-memory-mapping.md)). Heap reservations protect
+  image/BSS backing.
 - ARM instructions are four bytes; Thumb can be two or four. Dispatch keys encode
   Thumb in bit zero, while stored instruction addresses are canonical. ExHeader
   metadata does not identify mode boundaries or literal pools. The default CLI

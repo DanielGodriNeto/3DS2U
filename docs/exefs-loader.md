@@ -28,9 +28,10 @@ Explicit Thumb/mixed-mode ranges are supported as described in
 identification, and reachable-code analysis require additional metadata/analysis.
 
 The CLI now embeds initialized text/rodata/data bytes and mapped zero-filled tails
-in emitted C++ and initializes runtime memory during dispatcher setup. Guest
-mappings outside the runtime's fixed FCRAM window still require a general mapper;
-this loader alone does not enable full games.
+in emitted C++ and initializes runtime memory during dispatcher setup through
+`WiiUMemory::MapImageRange`, which accepts gapped, page-aligned sections and
+rejects overlaps explicitly (see [Guest memory mapping](guest-memory-mapping.md)).
+This loader alone does not enable full games.
 
 Format references: [Luma3DS loader](https://github.com/LumaTeam/Luma3DS/blob/master/sysmodules/loader/source/loader.c)
 and [NCCH CodeSetInfo layout](https://github.com/azahar-emu/azahar/blob/master/src/core/file_sys/ncch_container.h).
