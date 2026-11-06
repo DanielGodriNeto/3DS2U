@@ -49,6 +49,14 @@ try {
         "build/$OutputName", "build/$stem.romfs"
     )
     $targets = @($relativeFiles | ForEach-Object { Get-CleanupPath $_ })
+    # Split translation units and interrupted-publish temp files (exact names only).
+    $sourceDir = Get-CleanupPath 'wiiu_runtime/src'
+    if (Test-Path -LiteralPath $sourceDir -PathType Container) {
+        $targets += @(Get-ChildItem -LiteralPath $sourceDir -File -Force |
+            Where-Object { $_.Name -match '^translated_game(_blocks_[0-9]{4})?\.cpp(\.3ds2u-tmp)?$' -and
+                           $_.Name -ne 'translated_game.cpp' } |
+            ForEach-Object { Get-CleanupPath ('wiiu_runtime/src/' + $_.Name) })
+    }
     $runtime = Get-CleanupPath 'build/runtime'
     if (Test-Path -LiteralPath $runtime -PathType Container) {
         # The runtime Makefile emits flat objects, dependencies, ELF and RPX files.

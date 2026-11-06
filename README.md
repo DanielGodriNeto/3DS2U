@@ -134,6 +134,10 @@ build\3ds2u_translator.exe game.code game.cpp --exheader game.exheader --thumb-r
 ```
 
 Repeat `--thumb-range address:size` for additional nonoverlapping ranges.
+
+Add `--split-instructions N` (N from 1) to write `translated_game_blocks_NNNN.cpp` units of about N
+instructions next to the main file instead of one huge source. Copy the main file and every
+`*_blocks_*.cpp` into `wiiu_runtime/src/` together (the unified build does this for you).
 Addresses and sizes accept decimal or `0x` notation. ExHeader metadata does not
 identify ARM/Thumb boundaries or literal pools; ranges must be supplied explicitly.
 
@@ -217,11 +221,14 @@ input `.code`/ExHeader files are not needed when launching that RPX.
    See [HID register layout](docs/hid-mvp.md).
 5. If startup fails or output is blank, inspect Cemu's `log.txt` for `[3DS2U]`
    and HLE messages, especially an unmapped ARM/Thumb PC or memory exception.
-   Keep the build log, input metadata and emulator log when investigating failures.
+   Keep needed logs locally; redact local paths, device/account identifiers and
+   proprietary input metadata before sharing diagnostics.
 6. Stop emulation through Cemu when finished. The native audio demo plays a
    440 Hz tone; guest playback requires the explicit HLE/MMIO audio bridge.
 
-No successful Cemu visual/input validation is claimed by this package. For native
+No successful Cemu visual/input validation is claimed by this package. A
+user-reported Cemu 2.6 attempt ended on a missing translated block; see the
+[redacted runtime-validation record](docs/runtime-validation.md). For native
 hardware, launch the RPX using your existing Wii U homebrew environment.
 
 ## Tests and implementation notes
@@ -257,15 +264,20 @@ Additional architecture notes: [graphics bridge](docs/graphics-mvp.md),
 - The extractor accepts version-zero 3DSX and documented CIA/NCSD/NCCH layouts
   with caller-supplied keys/seeds. Direct NCCH/CXI, TWL/SHA1, personalized tickets,
   ELF and compressed 3DSX remain unsupported; BLZ `.code` is handled during CIA extraction.
-- Instruction support is partial. IT and unimplemented T32/VFP forms are unsupported;
-  automatic code/data separation and reachable-code discovery are absent.
+- Instruction support is partial. IT and unimplemented T32 forms fail translation.
+  Some unhandled ARM VFP forms currently log a warning and may be emitted as
+  comments (no-ops); see [VFP/T32 limitations](docs/vfp-thumb32.md) and
+  [issue #11](https://github.com/Wiirizon/3DS2U/issues/11). Automatic code/data
+  separation and reachable-code discovery are absent.
 - Guest memory uses a flat O3DS 128 MiB or N3DS 256 MiB window starting at
   `0x08000000`. General MMU mappings and full system services remain incomplete.
 - The emitted dispatcher starts at the entry parsed from the ExHeader `.text` (or
   `0x08000000` for raw code and 3DSX). A missing translated block at that entry fails
   translation; a runtime miss halts with mode, key and block count. Host tests use
-  synthetic fixtures only. Partial fix for the missing-block boot failure: the
-  reporter's binary was not available, so whether a retail title now boots is unverified.
+  synthetic fixtures only. A user-reported Cemu 2.6 run mounted the packaged RomFS
+  and then halted on a missing translated block; the cause is unknown and no
+  successful Cemu visual/input or Wii U hardware run has been established. See the
+  [redacted runtime-validation record](docs/runtime-validation.md).
 - The geometry bridge expects LE float3 position plus float4 color and custom
   draw registers. It does not implement retail PICA command streams or shaders.
 - Native AX playback supports explicit mono buffer submissions. Full CSND command

@@ -43,7 +43,7 @@ $(BUILD_DIR):
 -include $(OBJECTS:.o=.d)
 
 # Standalone dual-screen test, excluding the translated game's entry and dispatcher.
-DISPLAY_OBJECTS := $(filter-out $(BUILD_DIR)/main.o $(BUILD_DIR)/translated_game.o,$(OBJECTS)) $(BUILD_DIR)/display_transfer_demo.o
+DISPLAY_OBJECTS := $(filter-out $(BUILD_DIR)/main.o $(BUILD_DIR)/translated_game.o $(filter $(BUILD_DIR)/translated_game_blocks_%.o,$(OBJECTS)),$(OBJECTS)) $(BUILD_DIR)/display_transfer_demo.o
 .PHONY: display-demo
 display-demo: ../build/display_transfer_demo.rpx
 
@@ -58,7 +58,7 @@ $(BUILD_DIR)/display_transfer_demo.o: tests/display_transfer_demo.cpp Makefile |
 
 -include $(BUILD_DIR)/display_transfer_demo.d
 
-AUDIO_OBJECTS := $(filter-out $(BUILD_DIR)/main.o $(BUILD_DIR)/translated_game.o,$(OBJECTS)) $(BUILD_DIR)/audio_driver_demo.o
+AUDIO_OBJECTS := $(filter-out $(BUILD_DIR)/main.o $(BUILD_DIR)/translated_game.o $(filter $(BUILD_DIR)/translated_game_blocks_%.o,$(OBJECTS)),$(OBJECTS)) $(BUILD_DIR)/audio_driver_demo.o
 .PHONY: audio-demo
 audio-demo: ../build/audio_driver_demo.rpx
 
@@ -73,7 +73,7 @@ $(BUILD_DIR)/audio_driver_demo.o: tests/audio_driver_demo.cpp Makefile | $(BUILD
 
 -include $(BUILD_DIR)/audio_driver_demo.d
 
-TEV_OBJECTS := $(filter-out $(BUILD_DIR)/main.o $(BUILD_DIR)/translated_game.o,$(OBJECTS)) $(BUILD_DIR)/tev_demo.o
+TEV_OBJECTS := $(filter-out $(BUILD_DIR)/main.o $(BUILD_DIR)/translated_game.o $(filter $(BUILD_DIR)/translated_game_blocks_%.o,$(OBJECTS)),$(OBJECTS)) $(BUILD_DIR)/tev_demo.o
 .PHONY: tev-demo
 tev-demo: ../build/tev_demo.rpx
 

@@ -1,5 +1,6 @@
 #include "binary_loader.hpp"
 #include "decoder.hpp"
+#include "progress_sink.hpp"
 #include "cfg_builder.hpp"
 #include "cpp_emitter.hpp"
 #include "thumb_decoder.hpp"
@@ -11,12 +12,14 @@
 #include <string>
 #include <algorithm>
 #include <limits>
+#include <optional>
 
 int main(int argc, char** argv) {
     if (argc < 3) {
         std::cerr << "Usage: 3ds2u_translator <input_binary.code> <output_source.cpp>\n";
         std::cerr << "       Add --exheader <decrypted.exheader> for ExeFS section mapping\n";
         std::cerr << "       Add --thumb, or repeat --thumb-range <guest_address>:<byte_size>\n";
+        std::cerr << "       Add --split-instructions N for bounded translation units of at most N instructions\n";
         return 1;
     }
 
@@ -31,6 +34,7 @@ int main(int argc, char** argv) {
         bool all_thumb = false;
         struct Range { std::uint32_t start, size; };
         std::vector<Range> ranges;
+        std::optional<std::uint32_t> split_budget;
         const auto number = [](const std::string& text) {
             std::size_t used = 0;
             if (text.empty() || text.front() == '-') throw std::invalid_argument("Invalid mode-range number");
@@ -57,6 +61,9 @@ int main(int argc, char** argv) {
                     throw std::invalid_argument("Thumb ranges require aligned nonempty halfwords");
                 }
                 ranges.push_back({start, size});
+            } else if (option == "--split-instructions" && i + 1 < argc && !split_budget) {
+                split_budget = number(argv[++i]);
+                if (*split_budget == 0) throw std::invalid_argument("--split-instructions requires N >= 1");
             } else throw std::invalid_argument("Unknown, incomplete, or repeated CLI option: " + option);
         }
         if (all_thumb && !ranges.empty()) throw std::invalid_argument("Use --thumb or --thumb-range, not both");
@@ -111,7 +118,14 @@ int main(int argc, char** argv) {
         arm11::CFGBuilder builder;
         const auto blocks = builder.BuildBlocks(instructions);
         arm11::CppEmitter emitter;
-        if (!emitter.EmitTranslatedFile(output_path, blocks, &loader)) {
+        bool emitted = false;
+        if (split_budget) {
+            emitted = emitter.EmitTranslatedUnits(output_path, blocks, &loader, arm11::UnitOptions{*split_budget},
+                                                  arm11::MakeLineProgressSink(std::cout));
+        } else {
+            emitted = emitter.EmitTranslatedFile(output_path, blocks, &loader);
+        }
+        if (!emitted) {
             std::cerr << "[3DS2U] Translation failed: cannot emit \"" << output_path << "\"\n";
             return 1;
         }

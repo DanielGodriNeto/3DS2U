@@ -18,8 +18,19 @@ Supported conditional ARM encodings:
   register moves; VMRS/VMSR FPSCR, including VMRS-to-APSR NZCV via r15.
 
 The instruction patterns follow [QEMU's VFP encoding description](https://github.com/qemu/qemu/blob/master/target/arm/tcg/vfp.decode).
-Unsupported VFP encodings fail emission explicitly. FPSCR vector length/stride
-and exception-trap enable modes fail at execution rather than run as scalar math.
+Unlike unsupported T32 forms, an unhandled ARM VFP instruction currently takes a
+fallback path: the emitter logs a warning and writes the translator's
+`// Unhandled VFP Instruction` text as a C++ comment. The generated block therefore
+does nothing for that guest instruction, and translation can still complete.
+Whether a reported warning represents an invalid encoding, a valid unsupported
+instruction or a decoding false positive must be established before changing
+that behavior. This is a correctness risk if execution reaches the instruction;
+the recent Cemu failure stopped at a separate missing-block error, so the VFP
+warnings are not established as its cause. Track the fail-closed handling and
+emitter tests in [issue #11](https://github.com/Wiirizon/3DS2U/issues/11); see
+the [redacted runtime-validation record](runtime-validation.md). FPSCR vector
+length/stride and exception-trap enable modes fail at execution rather than run
+as scalar math.
 
 `VFPOperation` saves the host floating environment, selects the FPSCR rounding
 mode, clears host exceptions, performs the operation and merges IEEE exception
