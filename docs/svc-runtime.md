@@ -108,11 +108,15 @@ using synthetic ExHeaders. `wiiu_runtime/tests/dispatch_entry_tests.cpp` checks
 entry dispatch, mode, and the halt diagnostic for a missing block with synthetic
 blocks that touch no guest memory. Both are host-only, and the runtime test is not in
 `scripts/run_host_tests.cmd`. The missing-block diagnostic partially addresses the
-boot-crash report: the reporter's binary was not available, and no Wii U or Cemu run
-verified that a title boots. Host CoreInit substitutes create actual host threads
-and events. Tests check allocation boundaries/reuse, arbitration FIFO signaling,
-timeouts, one-shot events, stack alignment, thread ABI/priority, create failure,
-worker waits, exit and waking/joining a parked worker on shutdown.
+boot-crash report. A user-reported Cemu 2.6 run mounted the packaged RomFS, then
+halted with a missing translated block at PC `0x004FEAB0` in ARM mode and exited;
+this reproduces a runtime failure but does not establish its cause. No successful
+Cemu game boot or Wii U hardware run is verified. See the
+[redacted runtime-validation record](runtime-validation.md). Host CoreInit
+substitutes create actual host threads and events. Tests check allocation
+boundaries/reuse, arbitration FIFO signaling, timeouts, one-shot events, stack
+alignment, thread ABI/priority, create failure, worker waits, exit and
+waking/joining a parked worker on shutdown.
 
 General TLS, process handles, mutex SVCs, address-space permissions, exclusive
 ARM instructions, full IPC service routing and preemptive guest scheduling remain
