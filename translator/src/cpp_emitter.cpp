@@ -171,14 +171,21 @@ bool EmitThumbInstruction(std::ostream& output, ThumbTranslator& thumb, const In
 
 bool EmitVfpInstruction(std::ostream& output, VFPTranslator& vfp, const Instruction& inst,
                         const std::string& condition) {
-    const auto translated = vfp.TranslateInstruction(inst);
+    auto translated = vfp.TranslateInstruction(inst);
     if (translated == "// Unhandled VFP Instruction") {
-        // Keep translation deterministic when an image contains an
-        // invalid VFPv2 register encoding.  ARM11 cannot address
-        // D16-D31, so this is an undefined guest instruction rather
-        // than a host-emitter failure.
-        std::cerr << "CppEmitter: unsupported VFPv2 instruction at 0x"
-                  << HexAddress(inst.address) << "; emitting fallback\n";
+        // Fail closed: the word is either an invalid VFPv2 encoding (for
+        // example D16-D31) or a valid form this translator lacks.  Either
+        // way it must never run as a silent no-op, so the block traps if,
+        // and only if, the guest instruction would execute.
+        std::cerr << "CppEmitter: undefined or unsupported VFP instruction at 0x"
+                  << HexAddress(inst.address) << "; emitting runtime trap\n";
+        translated = "throw std::runtime_error(\"undefined or unsupported VFP instruction at 0x" +
+                     HexAddress(inst.address) + "\");";
+        // Condition 0xF has no ARMv6 meaning here; its "false" guard would hide the trap.
+        if (inst.opcode >> 28 == 0xFu) {
+            EmitInstruction(output, translated, "");
+            return false;
+        }
     }
     EmitInstruction(output, translated, condition);
     return false;

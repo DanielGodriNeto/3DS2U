@@ -78,11 +78,13 @@ runtime never updates an old host tool. Close Cemu before replacing an RPX.
 - Literal LDR bases use the individual instruction PC+8, not the block-entry PC.
   Other unsupported PC/shift/register-overlap cases need architectural review.
 - VFP double registers are D0-D15; single registers S0-S31 alias their words.
-  Decode operands only after identifying their format/precision. The current
-  unhandled ARM VFP fallback logs a warning but emits a C++ comment/no-op, not a
-  runtime trap. Do not treat successful translation as support; see
-  [issue #11](https://github.com/Wiirizon/3DS2U/issues/11). This is not a complete
-  guest Undefined Instruction exception implementation.
+  Decode operands only after identifying their format/precision. An unhandled
+  ARM VFP word logs a warning and emits a runtime trap (a thrown
+  `std::runtime_error` naming the guest address) under the instruction's own
+  condition, never a no-op. Translation still completes, so data decoded as code
+  does not abort a build; do not treat successful translation as support. This
+  is not a complete guest Undefined Instruction exception implementation; see
+  [issue #11](https://github.com/Wiirizon/3DS2U/issues/11).
 - CIA outer content encryption is CBC; NCCH region encryption is CTR. Plaintext
   NCCH content magic bypasses stale CIA encryption flags. Raw ExHeader hashes,
   validated ExeFS headers/hashes and bounded IVFC headers detect plaintext NCCH
@@ -156,7 +158,7 @@ vs unsplit execution compare) and `extractor/tests/romfs_source_tests.cpp`.
 | Nonsensical decoded branches | BLZ output, mode selection, embedded data, PC semantics; do not hide missing blocks |
 | Address below FCRAM | Image VA mapping emitted/installed, current host-tool version, actual faulting address |
 | No translated block | Compare the translator `Entry point` line with the runtime `Fatal: no translated block` PC, mode and lookup key; a stale generated source may lack the entry. Then check CFG boundaries, unsupported control flow, CRO/dynamic code |
-| Unsupported VFPv2 warning | Check the emitted code and whether the instruction is reachable; the current unhandled ARM VFP fallback is a comment/no-op, not a guest trap. Track remediation in [issue #11](https://github.com/Wiirizon/3DS2U/issues/11) |
+| Unsupported VFPv2 warning | Check the emitted code and whether the instruction is reachable; the emitted block now throws at runtime if the instruction executes (message names the guest address); the word may be an invalid encoding, a valid unsupported form or data decoded as code. See [issue #11](https://github.com/Wiirizon/3DS2U/issues/11) |
 | Long compile | Source size, compiler CPU/RAM; the translator prints unit progress lines, so a stall inside one `translated_game_blocks_NNNN.cpp` points at that unit; lower `--split-instructions` to shrink units |
 | Black screen | Read redacted runtime termination/PC logs before attributing failure to graphics; see the [runtime-validation record](runtime-validation.md) for a Cemu missing-block failure with unknown cause |
 | Device Guard/Defender blocks a test | Record the blocked check; obtain approved execution, do not evade controls |

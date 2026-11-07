@@ -18,17 +18,19 @@ Supported conditional ARM encodings:
   register moves; VMRS/VMSR FPSCR, including VMRS-to-APSR NZCV via r15.
 
 The instruction patterns follow [QEMU's VFP encoding description](https://github.com/qemu/qemu/blob/master/target/arm/tcg/vfp.decode).
-Unlike unsupported T32 forms, an unhandled ARM VFP instruction currently takes a
-fallback path: the emitter logs a warning and writes the translator's
-`// Unhandled VFP Instruction` text as a C++ comment. The generated block therefore
-does nothing for that guest instruction, and translation can still complete.
-Whether a reported warning represents an invalid encoding, a valid unsupported
-instruction or a decoding false positive must be established before changing
-that behavior. This is a correctness risk if execution reaches the instruction;
-the recent Cemu failure stopped at a separate missing-block error, so the VFP
-warnings are not established as its cause. Track the fail-closed handling and
-emitter tests in [issue #11](https://github.com/Wiirizon/3DS2U/issues/11); see
-the [redacted runtime-validation record](runtime-validation.md). FPSCR vector
+Unlike unsupported T32 forms, which stop translation, an unhandled ARM VFP
+instruction fails closed at run time: the emitter logs a warning and emits a
+`throw std::runtime_error(...)` naming the guest address, guarded by the
+instruction's own condition, so it never runs as a silent no-op. Translation
+still completes, so data decoded as code does not abort a build. The word may be
+an invalid VFPv2 encoding (D16-D31 operands, Rt=r15 core transfers, condition
+0xF), a valid form without a translation (for example VCMP, VMLA, VMOV
+immediate, FLDMX/FSTMX) or data decoded as code; the warning does not
+distinguish them. The recent Cemu failure stopped at a separate missing-block
+error, so the VFP warnings are not established as its cause. Emitter tests live
+in `translator/tests/vfp_tests.cpp`; see
+[issue #11](https://github.com/Wiirizon/3DS2U/issues/11) and the
+[redacted runtime-validation record](runtime-validation.md). FPSCR vector
 length/stride and exception-trap enable modes fail at execution rather than run
 as scalar math.
 
