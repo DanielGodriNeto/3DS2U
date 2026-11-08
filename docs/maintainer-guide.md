@@ -73,8 +73,8 @@ runtime never updates an old host tool. Close Cemu before replacing an RPX.
 - ARM instructions are four bytes; Thumb can be two or four. Dispatch keys encode
   Thumb in bit zero, while stored instruction addresses are canonical. ExHeader
   metadata does not identify mode boundaries or literal pools. The default CLI
-  scans ARM linearly; use explicit Thumb ranges when known. Reachability-based
-  ARM/Thumb/data discovery is pending.
+  scans ARM linearly; use explicit Thumb ranges when known. Opt-in `--discover`
+  follows reachable code instead; see [Reachability discovery](#reachability-discovery).
 - Literal LDR bases use the individual instruction PC+8, not the block-entry PC.
   Other unsupported PC/shift/register-overlap cases need architectural review.
 - VFP double registers are D0-D15; single registers S0-S31 alias their words.
@@ -146,6 +146,42 @@ The unified workflow cleans runtime objects, so incremental speed is sacrificed
 for reproducible fresh image builds. Manual builds can retain stale assets.
 Tests: `translator/tests/split_units_tests.cpp`, `split_exec_driver.cpp` (split
 vs unsplit execution compare) and `extractor/tests/romfs_source_tests.cpp`.
+
+### Reachability discovery
+
+`3ds2u_translator ... --discover` (opt-in) replaces the linear scan with
+`DiscoverCode` in `translator/src/code_discovery.cpp`. Starting from the entry point
+it follows B/BL, conditional branches, BLX immediate (into Thumb), BX/BLX register,
+LDM/LDR/high-register writes to PC (dynamic: no successor), and Thumb 16/32-bit
+forms, tracking ARM/Thumb state. Each address is decoded once; work is bounded by
+`.text` size and output is address-sorted and deterministic.
+PC-relative loads (ARM LDR/LDRB/LDRH/VLDR; Thumb LDR, LDRB, LDRH, LDRSB, LDRSH literal)
+record the 4-byte word containing the address (aligned down) that is never decoded as code.
+
+Limits:
+
+- Only the entry point seeds discovery. Functions reached only through BX Rm,
+  function pointers or jump tables are not found. The CLI prints the number of
+  undecoded `.text` bytes so this is visible.
+- `--thumb-range` does not seed discovery; with `--discover` it only constrains
+  ARM targets. `--thumb` sets the entry state to Thumb and forbids ARM targets.
+- Direct targets outside `.text` are external: not followed, not an error.
+- Encodings that cannot be translated are not judged here; translation rejects them later.
+- Dynamic PC writes are recognised by pattern; unrecognised encodings that write PC
+  fall through.
+- Wide conditional B.W (T3) is followed, but the Thumb translator does not support it,
+  so emission fails explicitly.
+
+Rejected inputs fail with `std::invalid_argument` naming the guest address:
+
+- the same address decoded as both ARM and Thumb;
+- a decoded instruction overlapping another instruction (including a T32 second
+  halfword) or a literal-pool word, and a literal pool overlapping decoded code;
+- a misaligned branch target, or an ARM target inside a forced Thumb range;
+- execution falling off `.text` (or a truncated T32 instruction), and an entry point
+  outside `.text` or misaligned.
+
+Tests: `translator/tests/code_discovery_tests.cpp`, built by `scripts/run_host_tests.cmd`.
 
 ## Troubleshooting
 
