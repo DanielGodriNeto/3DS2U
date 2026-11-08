@@ -98,6 +98,26 @@ threads before freeing memory/stacks. There is a 64-worker lifetime limit and
 thread storage cannot be freed prematurely. Shutdown must run on the owner/main
 thread, not a guest worker.
 
+## Code policy
+
+`CROLoader::SetCodePolicy` is an opt-in gate. When set, `LoadModule` asks the policy
+once after relocation and before the module becomes visible. A `false` result, or a
+throw, rejects the load with `CRO module code is not translated`; the rejection rolls
+back like malformed input, so guest bytes, exports and reservations are unchanged.
+With no policy set, loading is unchanged. A runtime can wire the policy to the engine
+by passing `WiiUEngine*` as the context and returning false unless
+`HasBlockInRange(segment.address, segment.size)` is true for every non-empty
+executable (type 0) segment at its relocated address. `HasBlockInRange` scans the
+block table linearly and is serialized under the engine execution lock.
+
+The runtime does not set a policy yet (no wiring in `HLEServiceManager` or `main.cpp`), and
+`HasBlockInRange` only proves that some block starts in the range, not that the whole
+segment is covered. An unwired load still fails closed later, at dispatch.
+
+Known limitation: translated blocks are keyed by absolute guest address, so a CRO's
+blocks match only if they were translated for the same load address. A
+relocatable-translation design is open and needs a maintainer decision.
+
 ## Verification and limits
 
 `translator/tests/svc_emitter_tests.cpp` produces real ARM, conditional ARM and

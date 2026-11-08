@@ -22,6 +22,9 @@ public:
     // Replaces an existing entry; null callbacks throw std::invalid_argument.
     void RegisterBlock(std::uint32_t address, BlockFunction block_func);
 
+    // True if a registered block's address (bit0 cleared) lies in [address, address + size).
+    [[nodiscard]] bool HasBlockInRange(std::uint32_t address, std::uint32_t size) const;
+
     [[nodiscard]] arm11::CPUContext& GetCPU() noexcept { return cpu; }
     [[nodiscard]] WiiUMemory& GetMemory() noexcept { return memory; }
     [[nodiscard]] AudioDriver& GetAudioDriver() noexcept { return audio_; }
