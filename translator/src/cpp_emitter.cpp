@@ -373,11 +373,7 @@ void EmitMainUnit(std::ostream& output, const BinaryLoader* image, CodeLocation 
 
 // Writes one staged file; exceptions cover open, write, and close failures.
 void WriteTextFile(const std::string& path, const std::function<void(std::ostream&)>& write) {
-    std::ofstream output;
-    output.exceptions(std::ios::failbit | std::ios::badbit);
-    output.open(path, std::ios::out | std::ios::trunc);
-    write(output);
-    output.close();
+    WriteStagedFile(path, write);
 }
 
 // Progress for one run. A failure is reported under the phase that raised it.
@@ -443,6 +439,9 @@ void PublishUnitSet(const std::string& main_output_path,
                     std::optional<InstructionSet> front_block_state, const std::vector<Unit>& units,
                     ProgressTracker& tracker) {
     const auto files = MakeUnitSetFiles(main_output_path, units);
+    // Refuse a bad final or stale match before any staged file is created.
+    tracker.Enter("publish");
+    CheckPublishable(files);
     TempFileSet staged;
     WriteStagedUnits(files, cfg, image, entry, front_block_state, units, tracker, staged);
     tracker.Enter("verify-registration");

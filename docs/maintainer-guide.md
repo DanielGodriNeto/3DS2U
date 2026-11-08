@@ -130,9 +130,16 @@ Without the option the translator writes one file exactly as before. Block order
 and keys are deterministic, so generating twice gives identical files. The
 translator streams every file to `<name>.3ds2u-tmp`, re-reads them to check that
 each block key is registered exactly once, and only then renames them into place
-(files whose bytes are unchanged keep their timestamp). It removes stale
+(files whose bytes are unchanged keep their timestamp). Staging files are created
+exclusively (`O_EXCL|O_NOFOLLOW` on POSIX, `_O_EXCL` on Windows), so a link or
+directory planted at a `.3ds2u-tmp` name is refused and never followed; only a
+leftover regular staging file of an earlier run is replaced. Every final and stale
+match is checked before the first staged file is written, and again (as regular
+file or absent) right before each rename. It removes stale
 `<stem>_blocks_<digits>.cpp` regular files in the output directory; a directory
-or link with such a name makes the run fail. Progress is printed to stdout as
+or link with such a name makes the run fail. The output directory itself must be
+trusted: an attacker who can already rename files inside it can still race the
+recheck. Progress is printed to stdout as
 plain lines (`[3DS2U] progress phase=emit-units 3/12 units, ...`) with no terminal
 control sequences; a failure prints `progress FAILED phase=...` and exits 1, and
 `phase=complete` is printed only after every unit is published. The Makefile

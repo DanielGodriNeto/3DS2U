@@ -1,14 +1,29 @@
 #include "unit_publisher.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <cstddef>
+#include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <streambuf>
 #include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
 #include <system_error>
+
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#include <share.h>
+#include <sys/stat.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 namespace arm11 {
 namespace {
@@ -59,8 +74,19 @@ std::vector<std::size_t> ParseUnitCalls(const std::string& text) {
     return calls;
 }
 
+bool IsRegularFile(const std::string& path);
+
+// Staged files are read back only while they are still regular files (never a swapped-in link).
+std::string ReadStaged(const std::string& final_path) {
+    const auto staged = TempPathFor(final_path);
+    if (!IsRegularFile(staged)) {
+        throw std::runtime_error("verify failed: staged file is not a regular file: " + staged);
+    }
+    return ReadFile(staged);
+}
+
 void VerifyChunk(const UnitSetFiles& files, std::size_t index) {
-    const auto keys = ParseKeys(ReadFile(TempPathFor(files.chunk_paths[index])));
+    const auto keys = ParseKeys(ReadStaged(files.chunk_paths[index]));
     if (keys != files.expected_keys[index]) {
         throw std::runtime_error("verify failed: unit " + std::to_string(index) +
                                  " registrations differ from its plan");
@@ -68,7 +94,7 @@ void VerifyChunk(const UnitSetFiles& files, std::size_t index) {
 }
 
 void VerifyMain(const UnitSetFiles& files) {
-    const auto text = ReadFile(TempPathFor(files.main_path));
+    const auto text = ReadStaged(files.main_path);
     if (text.find(kRegisterMarker) != std::string::npos) {
         throw std::runtime_error("verify failed: main file registers blocks directly");
     }
@@ -117,7 +143,10 @@ std::vector<std::string> FindStaleChunks(const UnitSetFiles& files) {
     std::set<std::string> wanted;
     for (const auto& path : files.chunk_paths) wanted.insert(fs::path{path}.filename().string());
     std::vector<std::string> stale;
-    for (const auto& entry : fs::directory_iterator(DirectoryOf(files.main_path))) {
+    std::error_code scan_error;
+    fs::directory_iterator it(DirectoryOf(files.main_path), scan_error);
+    if (scan_error) return stale; // a missing or unreadable directory fails at the first staged write
+    for (const auto& entry : it) {
         const auto name = entry.path().filename().string();
         if (!IsChunkName(name, files.chunk_stem) || wanted.contains(name)) continue;
         RequireRegularOrAbsent(entry.path().string());
@@ -129,6 +158,9 @@ std::vector<std::string> FindStaleChunks(const UnitSetFiles& files) {
 // True when the final must be replaced, that is when it is absent or its bytes differ.
 bool ContentDiffers(const std::string& final_path) {
     if (!IsRegularFile(final_path)) return true;
+    if (!IsRegularFile(TempPathFor(final_path))) {
+        throw std::runtime_error("publish refused: staged file is not a regular file: " + TempPathFor(final_path));
+    }
     return ReadFile(final_path) != ReadFile(TempPathFor(final_path));
 }
 
@@ -142,7 +174,13 @@ void RemoveRegularFile(const std::string& path) {
     if (IsRegularFile(path)) RemoveIfPresent(path);
 }
 
+// The staged file must still be the regular file this run created, and the final must still be
+// a regular file or absent, immediately before the rename.
 void RenameStaged(const std::string& final_path) {
+    if (!IsRegularFile(TempPathFor(final_path))) {
+        throw std::runtime_error("publish refused: staged file is not a regular file: " + TempPathFor(final_path));
+    }
+    RequireRegularOrAbsent(final_path);
     std::error_code error;
     fs::rename(TempPathFor(final_path), final_path, error);
     if (error) {
@@ -152,6 +190,7 @@ void RenameStaged(const std::string& final_path) {
 }
 
 void RemoveStale(const std::string& path) {
+    RequireRegularOrAbsent(path);
     std::error_code error;
     fs::remove(path, error);
     if (error) throw std::runtime_error("publish failed: cannot remove stale file " + path + ": " + error.message());
@@ -173,7 +212,69 @@ void ReplaceTargets(const std::vector<Target>& targets, std::vector<std::string>
 
 // Removes staged files of unchanged outputs, and every staged file on rollback.
 void DropStaged(const std::vector<Target>& targets) {
-    for (const auto& target : targets) RemoveIfPresent(TempPathFor(target.final_path));
+    for (const auto& target : targets) RemoveRegularFile(TempPathFor(target.final_path));
+}
+
+// Opens path for writing and fails if anything already exists there, a link included.
+std::FILE* OpenExclusive(const std::string& path) {
+#ifdef _WIN32
+    int fd = -1;
+    const auto wide = fs::path{path}.wstring();
+    const auto code = _wsopen_s(&fd, wide.c_str(), _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _SH_DENYWR,
+                                _S_IREAD | _S_IWRITE);
+    if (code != 0) errno = code;
+    if (code != 0) return nullptr;
+    auto* file = _fdopen(fd, "wb");
+    if (file == nullptr) _close(fd);
+    return file;
+#else
+    const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
+    if (fd < 0) return nullptr;
+    auto* file = ::fdopen(fd, "wb");
+    if (file == nullptr) ::close(fd);
+    return file;
+#endif
+}
+
+// Buffered ostream sink over a FILE*. Write errors surface as stream failure.
+class FileBuf : public std::streambuf {
+public:
+    explicit FileBuf(std::FILE* file) : file_{file} {}
+    bool Flush() { return sync() == 0; }
+
+protected:
+    std::streamsize xsputn(const char* data, std::streamsize count) override {
+        const auto written = std::fwrite(data, 1, static_cast<std::size_t>(count), file_);
+        return static_cast<std::streamsize>(written);
+    }
+    int_type overflow(int_type ch) override {
+        if (traits_type::eq_int_type(ch, traits_type::eof())) return traits_type::not_eof(ch);
+        const unsigned char byte = static_cast<unsigned char>(ch);
+        return std::fwrite(&byte, 1, 1, file_) == 1 ? ch : traits_type::eof();
+    }
+    int sync() override { return std::fflush(file_) == 0 ? 0 : -1; }
+
+private:
+    std::FILE* file_;
+};
+
+struct FileCloser {
+    void operator()(std::FILE* file) const { if (file != nullptr) std::fclose(file); }
+};
+
+// Leftover staging file of a crashed run: only a regular file may be replaced.
+std::FILE* CreateStaged(const std::string& staged_path) {
+    if (auto* file = OpenExclusive(staged_path)) return file;
+    const int open_errno = errno;
+    if (open_errno != EEXIST) {
+        throw std::runtime_error("staging failed: cannot create " + staged_path + ": " + std::strerror(open_errno));
+    }
+    if (!IsRegularFile(staged_path)) {
+        throw std::runtime_error("staging refused: path exists and is not a regular file: " + staged_path);
+    }
+    RemoveRegularFile(staged_path);
+    if (auto* file = OpenExclusive(staged_path)) return file;
+    throw std::runtime_error("staging refused: cannot create exclusively: " + staged_path);
 }
 
 std::vector<Target> PlanTargets(const UnitSetFiles& files) {
@@ -190,12 +291,28 @@ std::string TempPathFor(const std::string& final_path) {
 }
 
 TempFileSet::~TempFileSet() {
-    for (const auto& path : staged_) RemoveIfPresent(path);
+    for (const auto& path : staged_) RemoveRegularFile(path);
 }
 
 std::string TempFileSet::Track(const std::string& final_path) {
     staged_.push_back(TempPathFor(final_path));
     return staged_.back();
+}
+
+void WriteStagedFile(const std::string& staged_path, const std::function<void(std::ostream&)>& write) {
+    std::unique_ptr<std::FILE, FileCloser> file{CreateStaged(staged_path)};
+    FileBuf buffer{file.get()};
+    std::ostream out{&buffer};
+    out.exceptions(std::ios::failbit | std::ios::badbit);
+    write(out);
+    out.flush();
+    if (std::fclose(file.release()) != 0) throw std::runtime_error("cannot close " + staged_path);
+}
+
+void CheckPublishable(const UnitSetFiles& files) {
+    for (const auto& chunk : files.chunk_paths) RequireRegularOrAbsent(chunk);
+    RequireRegularOrAbsent(files.main_path);
+    FindStaleChunks(files);
 }
 
 void VerifyStagedFiles(const UnitSetFiles& files) {
@@ -208,8 +325,7 @@ void VerifyStagedFiles(const UnitSetFiles& files) {
 }
 
 void PublishStagedFiles(const UnitSetFiles& files) {
-    for (const auto& chunk : files.chunk_paths) RequireRegularOrAbsent(chunk);
-    RequireRegularOrAbsent(files.main_path);
+    CheckPublishable(files);
     const auto stale = FindStaleChunks(files);
     auto targets = PlanTargets(files);
     std::vector<std::string> replaced;
