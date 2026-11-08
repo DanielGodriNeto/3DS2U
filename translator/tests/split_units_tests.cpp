@@ -909,6 +909,139 @@ void VerifyRejectsCountMismatch(const fs::path& root) {
     Check(reason.find("count") != std::string::npos, "wrong rejection reason: " + reason);
 }
 
+// Hostile staging tests (CWE-59 / CWE-377). The link forms need link privileges; a missing privilege skips.
+struct SkipTest : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+
+// Throws SkipTest when links cannot be created, so main reports SKIP instead of a vacuous PASS.
+void MakeFileLink(const fs::path& target, const fs::path& link) {
+    std::error_code error;
+    fs::create_symlink(target, link, error);
+    if (error) throw SkipTest("cannot create file link: " + error.message());
+}
+
+fs::path StagePath(const fs::path& dir, std::size_t chunk) {
+    return arm11::TempPathFor(ChunkPath(dir, chunk).string());
+}
+
+// Test 19: a link planted at a staging name is not followed; its target is not overwritten.
+void StagingLinkNotFollowed(const fs::path& root) {
+    const auto dir = root / "stage_link";
+    Reset(dir);
+    const auto victim = root / "stage_link_victim.txt";
+    SaveBytes(victim, BytesOf("precious"));
+    MakeFileLink(victim, StagePath(dir, 0));
+    std::ostringstream log;
+    Check(!EmitUnitsLogged(MainPath(dir), SingleInstructionBlocks(3u), nullptr, 1u, log), "staging link accepted");
+    ExpectFailedAt(log.str(), "emit-units");
+    Check(ReadText(victim) == "precious", "link target was overwritten");
+    Check(fs::is_symlink(StagePath(dir, 0)), "planted link was removed or replaced");
+    Check(!fs::exists(ChunkPath(dir, 0)) && !fs::exists(MainPath(dir)), "final published after refusal");
+}
+
+// Test 20: a dangling link at a staging name does not create its target.
+void StagingDanglingLinkNotCreated(const fs::path& root) {
+    const auto dir = root / "stage_dangling";
+    Reset(dir);
+    const auto target = root / "stage_dangling_target.txt";
+    fs::remove(target);
+    MakeFileLink(target, StagePath(dir, 0));
+    std::ostringstream log;
+    Check(!EmitUnitsLogged(MainPath(dir), SingleInstructionBlocks(3u), nullptr, 1u, log), "dangling link accepted");
+    Check(!fs::exists(target), "dangling link target was created");
+}
+
+// Test 21: a directory at a staging name is refused and kept.
+void StagingDirectoryRefused(const fs::path& root) {
+    const auto dir = root / "stage_dir";
+    Reset(dir);
+    fs::create_directories(StagePath(dir, 1));
+    SaveBytes(StagePath(dir, 1) / "keep.txt", Bytes{'k'});
+    std::ostringstream log;
+    Check(!EmitUnitsLogged(MainPath(dir), SingleInstructionBlocks(3u), nullptr, 1u, log), "staging directory accepted");
+    ExpectFailedAt(log.str(), "emit-units");
+    Check(fs::exists(StagePath(dir, 1) / "keep.txt"), "staging directory was modified");
+}
+
+// Test 22: a leftover regular staging file of a crashed run is replaced and the run succeeds.
+void StaleRegularStagingReplaced(const fs::path& root) {
+    const auto dir = root / "stage_regular";
+    Reset(dir);
+    SaveBytes(StagePath(dir, 0), BytesOf("leftover from a crash"));
+    std::ostringstream log;
+    Check(EmitUnitsLogged(MainPath(dir), SingleInstructionBlocks(3u), nullptr, 1u, log), "leftover blocked the run");
+    Check(CountWithSuffix(dir, ".3ds2u-tmp") == 0, "temp file left behind");
+    Check(ReadText(ChunkPath(dir, 0)).find("leftover") == std::string::npos, "leftover bytes were published");
+}
+
+// Test 23: a refused final or stale match stops the run before any staged file is written.
+void RefusalPrecedesStagedWrites(const fs::path& root) {
+    const auto dir = root / "stage_order";
+    Reset(dir);
+    const auto sentinel = StagePath(dir, 0);
+    SaveBytes(sentinel, BytesOf("sentinel"));
+    fs::create_directories(dir / "translated_game_blocks_0007.cpp");
+    std::ostringstream log;
+    Check(!EmitUnitsLogged(MainPath(dir), SingleInstructionBlocks(3u), nullptr, 1u, log), "stale directory accepted");
+    ExpectFailedAt(log.str(), "publish");
+    Check(ReadText(sentinel) == "sentinel", "a staged file was written before the refusal check");
+    Check(!fs::exists(StagePath(dir, 1)) && !fs::exists(arm11::TempPathFor(MainPath(dir).string())),
+          "later staged files exist after refusal");
+}
+
+// Test 24: a link at a final name is refused, its target is not replaced.
+void FinalFileLinkRefused(const fs::path& root) {
+    const auto dir = root / "final_link";
+    Reset(dir);
+    const auto victim = root / "final_link_victim.txt";
+    SaveBytes(victim, BytesOf("precious"));
+    MakeFileLink(victim, ChunkPath(dir, 1));
+    std::ostringstream log;
+    Check(!EmitUnitsLogged(MainPath(dir), SingleInstructionBlocks(3u), nullptr, 1u, log), "final link accepted");
+    ExpectFailedAt(log.str(), "publish");
+    Check(ReadText(victim) == "precious", "final link target was overwritten");
+    Check(fs::is_symlink(ChunkPath(dir, 1)), "final link was replaced");
+}
+
+// Test 25: a staged file swapped for a link after verification is refused at publish.
+void StagedSwapToLinkRefusedAtPublish(const fs::path& root) {
+    const auto dir = root / "swap_link";
+    Reset(dir);
+    arm11::UnitSetFiles files;
+    files.main_path = MainPath(dir).string();
+    files.chunk_stem = "translated_game";
+    files.chunk_paths = {ChunkPath(dir, 0).string()};
+    files.expected_keys = {{kBase}};
+    SaveBytes(arm11::TempPathFor(files.chunk_paths[0]),
+              BytesOf("void RegisterTranslatedBlocks0000(wiiu::WiiUEngine& engine) {\n"
+                      "    engine.RegisterBlock(0x" + HexKey(kBase) + "u, &arm11::block_" + HexKey(kBase) + ");\n}\n"));
+    SaveBytes(arm11::TempPathFor(files.main_path),
+              BytesOf("void InitDispatcher(wiiu::WiiUEngine& engine) {\n"
+                      "    arm11::RegisterTranslatedBlocks0000(engine);\n}\n"));
+    arm11::VerifyStagedFiles(files);
+    const auto attacker = root / "swap_link_attacker.txt";
+    SaveBytes(attacker, BytesOf("attacker content"));
+    fs::remove(arm11::TempPathFor(files.chunk_paths[0]));
+    MakeFileLink(attacker, arm11::TempPathFor(files.chunk_paths[0]));
+    bool refused = false;
+    try {
+        arm11::PublishStagedFiles(files);
+    } catch (const std::runtime_error&) {
+        refused = true;
+    }
+    Check(refused, "swapped staged file was published");
+    Check(!fs::exists(files.chunk_paths[0]), "chunk final exists after refused publish");
+    Check(ReadText(attacker) == "attacker content", "attacker file modified");
+    bool verify_refused = false;
+    try {
+        arm11::VerifyStagedFiles(files);
+    } catch (const std::runtime_error&) {
+        verify_refused = true;
+    }
+    Check(verify_refused, "verify read through a staged link");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -940,12 +1073,21 @@ int main(int argc, char** argv) {
         {"VerifyRejectsCountMismatch", VerifyRejectsCountMismatch},
         {"ProgressIsLineOnly", ProgressIsLineOnly},
         {"ProgressMonotonicCompleteLast", ProgressMonotonicCompleteLast},
+        {"StagingLinkNotFollowed", StagingLinkNotFollowed},
+        {"StagingDanglingLinkNotCreated", StagingDanglingLinkNotCreated},
+        {"StagingDirectoryRefused", StagingDirectoryRefused},
+        {"StaleRegularStagingReplaced", StaleRegularStagingReplaced},
+        {"RefusalPrecedesStagedWrites", RefusalPrecedesStagedWrites},
+        {"FinalFileLinkRefused", FinalFileLinkRefused},
+        {"StagedSwapToLinkRefusedAtPublish", StagedSwapToLinkRefusedAtPublish},
     };
     int failures = 0;
     for (const auto& [name, test] : tests) {
         try {
             test(root);
             std::cout << "PASS " << name << '\n';
+        } catch (const SkipTest& skip) {
+            std::cout << "SKIP " << name << ": " << skip.what() << '\n';
         } catch (const std::exception& error) {
             ++failures;
             std::cout << "FAIL " << name << ": " << error.what() << '\n';

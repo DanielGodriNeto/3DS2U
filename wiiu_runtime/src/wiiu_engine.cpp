@@ -1,4 +1,5 @@
 #include "wiiu_engine.hpp"
+#include "dispatch_diagnostics.hpp"
 
 #include <coreinit/debug.h>
 
@@ -25,8 +26,34 @@ void WiiUEngine::RegisterBlock(std::uint32_t address, BlockFunction block_func) 
     block_table.insert_or_assign(address, block_func);
 }
 
+bool WiiUEngine::HasBlockInRange(std::uint32_t address, std::uint32_t size) const {
+    const auto begin = static_cast<std::uint64_t>(address);
+    const auto end = begin + static_cast<std::uint64_t>(size);
+    for (const auto& entry : block_table) {
+        const auto target = static_cast<std::uint64_t>(entry.first & ~1u);
+        if (target >= begin && target < end) return true;
+    }
+    return false;
+}
+
 bool WiiUEngine::RunWorkerBlock(void* engine, arm11::CPUContext& context) {
     return static_cast<WiiUEngine*>(engine)->DispatchOne(context);
+}
+
+void WiiUEngine::LogMissingBlockDetail(const arm11::CPUContext& context) const {
+    const std::uint32_t pc = context.r[15];
+    const bool thumb = context.thumb;
+    const std::uint32_t target = pc & ~1u;
+    const bool mapped = memory.IsMapped(target, thumb ? 2u : 4u);
+    const char* module = nullptr;
+    if (module_lookup_ != nullptr) module = module_lookup_(module_lookup_context_, target);
+    const bool caller_known = has_last_block_ && &context == &cpu;
+    const auto kind = ClassifyMissingBlock(pc, thumb, mapped, module != nullptr);
+    constexpr std::size_t kDetailCapacity = 192;
+    char detail[kDetailCapacity]{};
+    FormatMissingBlockDetail(detail, sizeof detail, kind, pc, thumb, last_block_key_,
+                             caller_known, module);
+    OSReport("%s\n", detail);
 }
 
 bool WiiUEngine::DispatchOne(arm11::CPUContext& context) {
@@ -43,8 +70,13 @@ bool WiiUEngine::DispatchOne(arm11::CPUContext& context) {
                      " Compare with the translator 'Entry point' line.\n",
                      context.r[15], context.thumb ? "Thumb" : "ARM", key,
                      static_cast<unsigned>(block_table.size()));
+            if (missing_block_diagnostics_) LogMissingBlockDetail(context);
             if (&context == &cpu) halted_ = true;
             unlock(); return false;
+        }
+        if (&context == &cpu) {
+            last_block_key_ = key;
+            has_last_block_ = true;
         }
         memory.SetGPUAccessAllowed(&context == &cpu);
         it->second(context, memory);
@@ -63,6 +95,7 @@ void WiiUEngine::Run(std::uint32_t entry_point) {
     if ((entry_point & 1u) != 0) cpu.BranchExchange(entry_point);
     else cpu.r[15] = entry_point;
     halted_ = false;
+    has_last_block_ = false;
     cpu.svc_yield = false;
     if (cpu.svc_exit_requested || !svc_handler_.Ready(cpu)) return;
 

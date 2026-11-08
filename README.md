@@ -135,6 +135,16 @@ build\3ds2u_translator.exe game.code game.cpp --exheader game.exheader --thumb-r
 
 Repeat `--thumb-range address:size` for additional nonoverlapping ranges.
 
+For images whose code is mixed with literal pools or data, add `--discover` (opt-in;
+the default stays linear). It translates only code reachable from the entry point and
+rejects ambiguous input:
+
+```bat
+build\3ds2u_translator.exe game.code game.cpp --exheader game.exheader --discover
+```
+
+Details, limits and the rejection list are in the [maintainer guide](docs/maintainer-guide.md#reachability-discovery).
+
 Add `--split-instructions N` (N from 1) to write `translated_game_blocks_NNNN.cpp` units of about N
 instructions next to the main file instead of one huge source. Copy the main file and every
 `*_blocks_*.cpp` into `wiiu_runtime/src/` together (the unified build does this for you).
@@ -265,8 +275,8 @@ Additional architecture notes: [graphics bridge](docs/graphics-mvp.md),
   with caller-supplied keys/seeds. Direct NCCH/CXI, TWL/SHA1, personalized tickets,
   ELF and compressed 3DSX remain unsupported; BLZ `.code` is handled during CIA extraction.
 - Instruction support is partial. IT and unimplemented T32 forms fail translation.
-  Some unhandled ARM VFP forms currently log a warning and may be emitted as
-  comments (no-ops); see [VFP/T32 limitations](docs/vfp-thumb32.md) and
+  Unhandled ARM VFP forms log a warning and are emitted as a runtime trap
+  (never a no-op); see [VFP/T32 limitations](docs/vfp-thumb32.md) and
   [issue #11](https://github.com/Wiirizon/3DS2U/issues/11). Automatic code/data
   separation and reachable-code discovery are absent.
 - Guest memory uses a flat O3DS 128 MiB or N3DS 256 MiB window starting at

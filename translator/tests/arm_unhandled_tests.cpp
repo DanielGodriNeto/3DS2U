@@ -76,6 +76,12 @@ int main() {
     const auto never = EmitSingle("build/arm_unhandled_never.cpp", 0xF8BD0000u, 0x08000000u);
     CheckTrapped("cond-F", never, "08000000", false);
 
+    // PLD is a cache hint: it must stay a silent skip, not a trap.
+    CheckTranslated("pld-imm", EmitSingle("build/arm_unhandled_pld.cpp", 0xF5D0F000u, 0x08000000u),
+                    "PLD: cache hint");
+    CheckTranslated("pld-reg", EmitSingle("build/arm_unhandled_pldr.cpp", 0xF7D0F001u, 0x08000000u),
+                    "PLD: cache hint");
+
     CheckTranslated("mov", EmitSingle("build/arm_unhandled_mov.cpp", 0xE3A00001u, 0x08000000u),
                     "cpu.r[0] = 0x1u;");
     CheckTranslated("ldr", EmitSingle("build/arm_unhandled_ldr.cpp", 0xE5910000u, 0x08000000u),

@@ -171,14 +171,21 @@ bool EmitThumbInstruction(std::ostream& output, ThumbTranslator& thumb, const In
 
 bool EmitVfpInstruction(std::ostream& output, VFPTranslator& vfp, const Instruction& inst,
                         const std::string& condition) {
-    const auto translated = vfp.TranslateInstruction(inst);
+    auto translated = vfp.TranslateInstruction(inst);
     if (translated == "// Unhandled VFP Instruction") {
-        // Keep translation deterministic when an image contains an
-        // invalid VFPv2 register encoding.  ARM11 cannot address
-        // D16-D31, so this is an undefined guest instruction rather
-        // than a host-emitter failure.
-        std::cerr << "CppEmitter: unsupported VFPv2 instruction at 0x"
-                  << HexAddress(inst.address) << "; emitting fallback\n";
+        // Fail closed: the word is either an invalid VFPv2 encoding (for
+        // example D16-D31) or a valid form this translator lacks.  Either
+        // way it must never run as a silent no-op, so the block traps if,
+        // and only if, the guest instruction would execute.
+        std::cerr << "CppEmitter: undefined or unsupported VFP instruction at 0x"
+                  << HexAddress(inst.address) << "; emitting runtime trap\n";
+        translated = "throw std::runtime_error(\"undefined or unsupported VFP instruction at 0x" +
+                     HexAddress(inst.address) + "\");";
+        // Condition 0xF has no ARMv6 meaning here; its "false" guard would hide the trap.
+        if (inst.opcode >> 28 == 0xFu) {
+            EmitInstruction(output, translated, "");
+            return false;
+        }
     }
     EmitInstruction(output, translated, condition);
     return false;
@@ -186,6 +193,13 @@ bool EmitVfpInstruction(std::ostream& output, VFPTranslator& vfp, const Instruct
 
 // Fail closed: an ARM word that no translator handles traps when, and only when, it would execute.
 void EmitUnhandledArmInstruction(std::ostream& output, const Instruction& inst, const std::string& condition) {
+    // PLD (immediate and register forms) is a cache hint with no architectural effect; compilers
+    // emit it in memcpy-style loops, so trapping on it would abort working games.
+    const auto word = inst.opcode;
+    if ((word & 0xFF70F000u) == 0xF550F000u || (word & 0xFF70F010u) == 0xF750F000u) {
+        EmitInstruction(output, "// PLD: cache hint, no architectural effect", "");
+        return;
+    }
     std::cerr << "CppEmitter: unsupported ARM instruction at 0x" << HexAddress(inst.address)
               << "; emitting runtime trap\n";
     const auto trap = std::string("throw std::runtime_error(\"unsupported ARM instruction at 0x") +
@@ -388,11 +402,7 @@ void EmitMainUnit(std::ostream& output, const BinaryLoader* image, CodeLocation 
 
 // Writes one staged file; exceptions cover open, write, and close failures.
 void WriteTextFile(const std::string& path, const std::function<void(std::ostream&)>& write) {
-    std::ofstream output;
-    output.exceptions(std::ios::failbit | std::ios::badbit);
-    output.open(path, std::ios::out | std::ios::trunc);
-    write(output);
-    output.close();
+    WriteStagedFile(path, write);
 }
 
 // Progress for one run. A failure is reported under the phase that raised it.
@@ -458,6 +468,9 @@ void PublishUnitSet(const std::string& main_output_path,
                     std::optional<InstructionSet> front_block_state, const std::vector<Unit>& units,
                     ProgressTracker& tracker) {
     const auto files = MakeUnitSetFiles(main_output_path, units);
+    // Refuse a bad final or stale match before any staged file is created.
+    tracker.Enter("publish");
+    CheckPublishable(files);
     TempFileSet staged;
     WriteStagedUnits(files, cfg, image, entry, front_block_state, units, tracker, staged);
     tracker.Enter("verify-registration");

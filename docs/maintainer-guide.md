@@ -73,19 +73,22 @@ runtime never updates an old host tool. Close Cemu before replacing an RPX.
 - ARM instructions are four bytes; Thumb can be two or four. Dispatch keys encode
   Thumb in bit zero, while stored instruction addresses are canonical. ExHeader
   metadata does not identify mode boundaries or literal pools. The default CLI
-  scans ARM linearly; use explicit Thumb ranges when known. Reachability-based
-  ARM/Thumb/data discovery is pending.
+  scans ARM linearly; use explicit Thumb ranges when known. Opt-in `--discover`
+  follows reachable code instead; see [Reachability discovery](#reachability-discovery).
 - Literal LDR bases use the individual instruction PC+8, not the block-entry PC.
   Other unsupported PC/shift/register-overlap cases need architectural review.
 - VFP double registers are D0-D15; single registers S0-S31 alias their words.
-  Decode operands only after identifying their format/precision. The current
-  unhandled ARM VFP fallback logs a warning but emits a C++ comment/no-op, not a
-  runtime trap. Do not treat successful translation as support; see
-  [issue #11](https://github.com/Wiirizon/3DS2U/issues/11). This is not a complete
-  guest Undefined Instruction exception implementation.
-  Unhandled non-VFP ARM words are different: they emit a runtime trap under their
+  Decode operands only after identifying their format/precision. An unhandled
+  ARM VFP word logs a warning and emits a runtime trap (a thrown
+  `std::runtime_error` naming the guest address) under the instruction's own
+  condition, never a no-op. Translation still completes, so data decoded as code
+  does not abort a build; do not treat successful translation as support. This
+  is not a complete guest Undefined Instruction exception implementation; see
+  [issue #11](https://github.com/Wiirizon/3DS2U/issues/11).
+  Unhandled non-VFP ARM words are the same: they emit a runtime trap under their
   condition and throw only when executed; unhandled Thumb words already fail at
-  translation time.
+  translation time. The cache hint PLD (condition 0xF) is skipped, as it has no
+  architectural effect.
 - CIA outer content encryption is CBC; NCCH region encryption is CTR. Plaintext
   NCCH content magic bypasses stale CIA encryption flags. Raw ExHeader hashes,
   validated ExeFS headers/hashes and bounded IVFC headers detect plaintext NCCH
@@ -133,9 +136,16 @@ Without the option the translator writes one file exactly as before. Block order
 and keys are deterministic, so generating twice gives identical files. The
 translator streams every file to `<name>.3ds2u-tmp`, re-reads them to check that
 each block key is registered exactly once, and only then renames them into place
-(files whose bytes are unchanged keep their timestamp). It removes stale
+(files whose bytes are unchanged keep their timestamp). Staging files are created
+exclusively (`O_EXCL|O_NOFOLLOW` on POSIX, `_O_EXCL` on Windows), so a link or
+directory planted at a `.3ds2u-tmp` name is refused and never followed; only a
+leftover regular staging file of an earlier run is replaced. Every final and stale
+match is checked before the first staged file is written, and again (as regular
+file or absent) right before each rename. It removes stale
 `<stem>_blocks_<digits>.cpp` regular files in the output directory; a directory
-or link with such a name makes the run fail. Progress is printed to stdout as
+or link with such a name makes the run fail. The output directory itself must be
+trusted: an attacker who can already rename files inside it can still race the
+recheck. Progress is printed to stdout as
 plain lines (`[3DS2U] progress phase=emit-units 3/12 units, ...`) with no terminal
 control sequences; a failure prints `progress FAILED phase=...` and exits 1, and
 `phase=complete` is printed only after every unit is published. The Makefile
@@ -150,6 +160,42 @@ for reproducible fresh image builds. Manual builds can retain stale assets.
 Tests: `translator/tests/split_units_tests.cpp`, `split_exec_driver.cpp` (split
 vs unsplit execution compare) and `extractor/tests/romfs_source_tests.cpp`.
 
+### Reachability discovery
+
+`3ds2u_translator ... --discover` (opt-in) replaces the linear scan with
+`DiscoverCode` in `translator/src/code_discovery.cpp`. Starting from the entry point
+it follows B/BL, conditional branches, BLX immediate (into Thumb), BX/BLX register,
+LDM/LDR/high-register writes to PC (dynamic: no successor), and Thumb 16/32-bit
+forms, tracking ARM/Thumb state. Each address is decoded once; work is bounded by
+`.text` size and output is address-sorted and deterministic.
+PC-relative loads (ARM LDR/LDRB/LDRH/VLDR; Thumb LDR, LDRB, LDRH, LDRSB, LDRSH literal)
+record the 4-byte word containing the address (aligned down) that is never decoded as code.
+
+Limits:
+
+- Only the entry point seeds discovery. Functions reached only through BX Rm,
+  function pointers or jump tables are not found. The CLI prints the number of
+  undecoded `.text` bytes so this is visible.
+- `--thumb-range` does not seed discovery; with `--discover` it only constrains
+  ARM targets. `--thumb` sets the entry state to Thumb and forbids ARM targets.
+- Direct targets outside `.text` are external: not followed, not an error.
+- Encodings that cannot be translated are not judged here; translation rejects them later.
+- Dynamic PC writes are recognised by pattern; unrecognised encodings that write PC
+  fall through.
+- Wide conditional B.W (T3) is followed, but the Thumb translator does not support it,
+  so emission fails explicitly.
+
+Rejected inputs fail with `std::invalid_argument` naming the guest address:
+
+- the same address decoded as both ARM and Thumb;
+- a decoded instruction overlapping another instruction (including a T32 second
+  halfword) or a literal-pool word, and a literal pool overlapping decoded code;
+- a misaligned branch target, or an ARM target inside a forced Thumb range;
+- execution falling off `.text` (or a truncated T32 instruction), and an entry point
+  outside `.text` or misaligned.
+
+Tests: `translator/tests/code_discovery_tests.cpp`, built by `scripts/run_host_tests.cmd`.
+
 ## Troubleshooting
 
 | Symptom | Check next |
@@ -159,7 +205,7 @@ vs unsplit execution compare) and `extractor/tests/romfs_source_tests.cpp`.
 | Nonsensical decoded branches | BLZ output, mode selection, embedded data, PC semantics; do not hide missing blocks |
 | Address below FCRAM | Image VA mapping emitted/installed, current host-tool version, actual faulting address |
 | No translated block | Compare the translator `Entry point` line with the runtime `Fatal: no translated block` PC, mode and lookup key; a stale generated source may lack the entry. Then check CFG boundaries, unsupported control flow, CRO/dynamic code |
-| Unsupported VFPv2 warning | Check the emitted code and whether the instruction is reachable; the current unhandled ARM VFP fallback is a comment/no-op, not a guest trap. Track remediation in [issue #11](https://github.com/Wiirizon/3DS2U/issues/11) |
+| Unsupported VFPv2 warning | Check the emitted code and whether the instruction is reachable; the emitted block now throws at runtime if the instruction executes (message names the guest address); the word may be an invalid encoding, a valid unsupported form or data decoded as code. See [issue #11](https://github.com/Wiirizon/3DS2U/issues/11) |
 | Long compile | Source size, compiler CPU/RAM; the translator prints unit progress lines, so a stall inside one `translated_game_blocks_NNNN.cpp` points at that unit; lower `--split-instructions` to shrink units |
 | Black screen | Read redacted runtime termination/PC logs before attributing failure to graphics; see the [runtime-validation record](runtime-validation.md) for a Cemu missing-block failure with unknown cause |
 | Device Guard/Defender blocks a test | Record the blocked check; obtain approved execution, do not evade controls |

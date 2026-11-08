@@ -44,6 +44,12 @@ public:
     // Validates queued geometry, then submits snapshots in guest draw order.
     [[nodiscard]] bool EndCommandList();
     void CancelCommandList() noexcept;
+    // Unsupported writes (misaligned or unknown in-window registers, draw values other
+    // than 1) are counted. Strict mode also throws before any register state changes.
+    void SetStrictRegisters(bool enabled) noexcept { strict_registers_ = enabled; }
+    [[nodiscard]] std::uint32_t UnsupportedWriteCount() const noexcept { return unsupported_writes_; }
+    [[nodiscard]] bool HasUnsupportedWrite() const noexcept { return has_unsupported_write_; }
+    [[nodiscard]] std::uint32_t FirstUnsupportedAddress() const noexcept { return first_unsupported_address_; }
 
 private:
     struct TextureState { std::uint32_t address{}, dimensions{}, format{}; };
@@ -55,6 +61,7 @@ private:
     };
     [[nodiscard]] const void* ValidateDraw(const DrawRequest& request) const;
     void SubmitDraw(const DrawRequest& request);
+    void RejectUnsupportedWrite(std::uint32_t address);
     gx2::GX2Manager& gx2_manager_;
     WiiUMemory* memory_{};
     std::uint32_t vbo_addr_{};
@@ -65,6 +72,10 @@ private:
     bool batching_{};
     TextureState texture0_{};
     TEVCombiner tev_{};
+    bool strict_registers_{};
+    bool has_unsupported_write_{};
+    std::uint32_t unsupported_writes_{};
+    std::uint32_t first_unsupported_address_{};
     // MVP direct scalar register bank; first four vec4s form a row-major mat4.
     std::array<std::uint32_t, kUniformFloatCount> uniforms24_ = [] {
         std::array<std::uint32_t, kUniformFloatCount> values{};

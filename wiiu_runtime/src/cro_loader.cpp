@@ -152,6 +152,16 @@ bool CROModule::IsExecutable(std::uint32_t address) const noexcept {
     return false;
 }
 
+void CROLoader::SetCodePolicy(CodePolicy policy, void* context) noexcept {
+    code_policy_ = policy;
+    code_policy_context_ = context;
+}
+bool CROLoader::AllowsCode(const CROModule& module) const {
+    if (code_policy_ == nullptr) return true;
+    try { return code_policy_(code_policy_context_, module); }
+    catch (...) { return false; }
+}
+
 bool CROLoader::RegisterSymbol(const std::string& name, U32 address) {
     if (name.empty()) return false;
     return symbols_.emplace(name, Symbol{address, 0}).second;
@@ -292,6 +302,7 @@ bool CROLoader::LoadModule(WiiUMemory& memory, const std::uint8_t* data, std::si
             patch(Tag(module, Word(p.bytes, at), 4), p.bytes[at + 4],
                      module.segments[index].address, Word(p.bytes, at + 8));
         }
+        if (!AllowsCode(module)) Fail("CRO module code is not translated");
         // Build all throwing metadata before committing any guest bytes.
         auto modules = modules_;
         if (!modules.emplace(base, module).second) Fail("CRO address already loaded");
@@ -301,6 +312,15 @@ bool CROLoader::LoadModule(WiiUMemory& memory, const std::uint8_t* data, std::si
         modules_.swap(modules); symbols_.swap(symbols); memory_ = &memory;
         out = std::move(result); error_.clear(); return true;
     } catch (const std::exception& e) { error_ = e.what(); return false; }
+}
+
+const char* CROLoader::FindModuleName(U32 address) const noexcept {
+    for (const auto& [base, module] : modules_) {
+        // 64-bit end: a module ending at the top of the 32-bit space must not wrap.
+        const std::uint64_t end = std::uint64_t{base} + module.mapped_size;
+        if (address >= base && std::uint64_t{address} < end) return module.name.c_str();
+    }
+    return nullptr;
 }
 
 bool CROLoader::UnloadModule(WiiUMemory& memory, U32 base) {

@@ -9,7 +9,9 @@ build\3ds2u_translator.exe input.code output.cpp --exheader input.exheader --thu
 `--thumb` fetches initialized `.text` as little-endian halfwords, consuming a
 second halfword for T32 prefixes. For mixed images,
 repeat `--thumb-range <guest_virtual_address>:<byte_size>` for known T16 regions;
-the remaining text is decoded as ARM words. Ranges must not overlap or leave
+the remaining text is decoded as ARM words. With `--discover`, the ranges are
+constraints only: discovery seeds only the entry point, so code in a range is decoded
+when it is reached, and an ARM branch into a range is rejected. Ranges must not overlap or leave
 `.text`, and ARM portions must remain word aligned. ExHeader metadata does not
 describe instruction modes or literal pools. Register-based branch targets are
 not statically inferred; their destination blocks must have been emitted in the

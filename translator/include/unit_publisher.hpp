@@ -2,6 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <ostream>
 #include <string>
 #include <vector>
 
@@ -18,7 +20,8 @@ struct UnitSetFiles {
 // Staging name of a final file: the final path plus ".3ds2u-tmp".
 std::string TempPathFor(const std::string& final_path);
 
-// Removes staged files that are still present when the run ends, so a failed run leaves no staged output.
+// Removes staged regular files that are still present when the run ends, so a failed run leaves no staged
+// output. A link, directory or other non-regular entry at a staging name is never touched.
 class TempFileSet {
 public:
     TempFileSet() = default;
@@ -32,6 +35,17 @@ public:
 private:
     std::vector<std::string> staged_;
 };
+
+// Creates staged_path exclusively (O_EXCL plus O_NOFOLLOW, or CREATE_NEW semantics on Windows) and streams
+// the text through write into it. A leftover regular staging file from an earlier run is replaced; a link,
+// directory or any other entry at that name is refused, and the write never follows a link.
+// Throws std::runtime_error on refusal or any open, write, flush or close failure.
+void WriteStagedFile(const std::string& staged_path, const std::function<void(std::ostream&)>& write);
+
+// Refuses, before any staged file is written, when a final or a stale match is not a regular file.
+// A missing output directory is not refused here: writing the first staged file reports it.
+// Throws std::runtime_error.
+void CheckPublishable(const UnitSetFiles& files);
 
 // Reads every staged file back. Chunk N must register exactly expected_keys[N];
 // the main file must register nothing itself and call units 0..N-1 in order.

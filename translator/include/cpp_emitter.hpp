@@ -36,10 +36,11 @@ public:
     // its instruction count stays within options.max_instructions_per_unit, and a
     // block is never split (an oversized block gets its own unit).
     // Determinism: output depends only on cfg, image, and the budget.
-    // Staging: every file is first written as <name>.3ds2u-tmp, read back and checked
+    // Staging: every file is first created exclusively as <name>.3ds2u-tmp (a link or
+    // directory at that name is refused, never followed), read back and checked
     // against its plan, then published (identical content leaves the final untouched).
     // Stale <stem>_blocks_NNNN.cpp regular files not in this set are removed; any other
-    // match or non-regular final refuses the run before anything is changed.
+    // match or non-regular final refuses the run before any staged file is written.
     // Failure: returns false and reports "CppEmitter: <reason>" to std::cerr.
     // A budget of 0 or more than 10000 units, a CFG key mismatch, and a missing or
     // ambiguous image entry are rejected before any file is opened. A failed run removes
