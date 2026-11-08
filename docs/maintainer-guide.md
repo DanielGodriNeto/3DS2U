@@ -85,6 +85,10 @@ runtime never updates an old host tool. Close Cemu before replacing an RPX.
   does not abort a build; do not treat successful translation as support. This
   is not a complete guest Undefined Instruction exception implementation; see
   [issue #11](https://github.com/Wiirizon/3DS2U/issues/11).
+  Unhandled non-VFP ARM words are the same: they emit a runtime trap under their
+  condition and throw only when executed; unhandled Thumb words already fail at
+  translation time. The cache hint PLD (condition 0xF) is skipped, as it has no
+  architectural effect.
 - CIA outer content encryption is CBC; NCCH region encryption is CTR. Plaintext
   NCCH content magic bypasses stale CIA encryption flags. Raw ExHeader hashes,
   validated ExeFS headers/hashes and bounded IVFC headers detect plaintext NCCH
