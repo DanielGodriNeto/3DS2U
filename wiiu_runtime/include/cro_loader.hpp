@@ -28,6 +28,10 @@ struct CROModule {
 // Serialize all calls with the engine execution lock; memory must outlive modules.
 class CROLoader {
 public:
+    // Asked once per LoadModule after relocation, before the module is visible. True lets
+    // its code run; false or a throw rejects the load with "CRO module code is not translated".
+    using CodePolicy = bool (*)(void* context, const CROModule& module);
+    void SetCodePolicy(CodePolicy policy, void* context) noexcept;
     bool RegisterSymbol(const std::string& name, std::uint32_t address);
     [[nodiscard]] bool FindSymbol(const std::string& name, std::uint32_t& address) const;
     bool LoadModule(WiiUMemory& memory, const std::uint8_t* cro_data, std::size_t size,
@@ -39,6 +43,9 @@ public:
     [[nodiscard]] const char* FindModuleName(std::uint32_t address) const noexcept;
 private:
     struct Symbol { std::uint32_t address{}, owner{}; };
+    [[nodiscard]] bool AllowsCode(const CROModule& module) const;
+    CodePolicy code_policy_{};
+    void* code_policy_context_{};
     std::map<std::string, Symbol> symbols_;
     std::map<std::uint32_t, CROModule> modules_;
     WiiUMemory* memory_{};

@@ -99,6 +99,22 @@ void MissingThumbEntryReportsMode() {
     Check(Logged("lookup key 0x00100001"));
 }
 
+void HasBlockInRangeMatchesGuestAddresses() {
+    wiiu::WiiUEngine empty;
+    Check(!empty.HasBlockInRange(0x00100000u, 0x10u));
+    wiiu::WiiUEngine engine;
+    engine.RegisterBlock(0x00100000u, ArmBlock);
+    engine.RegisterBlock(0x00200001u, ThumbBlock);
+    engine.RegisterBlock(0xFFFFFFFCu, ArmBlock);
+    Check(engine.HasBlockInRange(0x000FFFF0u, 0x20u));
+    Check(engine.HasBlockInRange(0x00200000u, 2u));
+    Check(!engine.HasBlockInRange(0x00200001u, 1u));
+    Check(!engine.HasBlockInRange(0x000FFFF0u, 0x10u));
+    Check(!engine.HasBlockInRange(0x00100000u, 0u));
+    Check(engine.HasBlockInRange(0xFFFFFFF0u, 0x20u));
+    Check(engine.HasBlockInRange(0x00100004u, 0xFFFFFFFCu));
+}
+
 // Guest code page for the diagnostic checks. The real memory backs only the FCRAM window
 // and explicitly mapped image ranges, so these addresses need a mapped page.
 constexpr std::uint32_t kCodeBase = 0x00100000u;
@@ -331,6 +347,8 @@ int main() try {
     ThumbEntryRunsTaggedBlockInThumbMode();
     ResetCounters();
     MissingThumbEntryReportsMode();
+    ResetCounters();
+    HasBlockInRangeMatchesGuestAddresses();
     ResetCounters();
     DetailIsOffByDefault();
     ResetCounters();

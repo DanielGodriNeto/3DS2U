@@ -54,6 +54,21 @@ U32 ThumbTarget(wiiu::WiiUMemory& memory, U32 pc) {
     if (s != 0) bits |= 0xFE000000u;
     return ((lo & 0x1000u) != 0 ? pc + 4 : (pc + 4) & ~3u) + bits;
 }
+struct PolicyProbe {
+    bool allow{true}, throws{false};
+    unsigned calls{};
+    std::size_t segment_count{};
+    U32 load_address{};
+};
+bool ProbePolicy(void* context, const wiiu::CROModule& module) {
+    auto& probe = *static_cast<PolicyProbe*>(context);
+    ++probe.calls;
+    probe.segment_count = module.segments.size();
+    probe.load_address = module.load_address;
+    if (probe.throws) throw std::runtime_error("policy refused");
+    return probe.allow;
+}
+constexpr const char* not_translated = "CRO module code is not translated";
 } // namespace
 
 // Host tests exercise production guest memory and its endian-safe accessors.
@@ -171,6 +186,52 @@ int main() try {
         Check(memory.Read32(base + 0x4400) == base + text + 4);
         Check(!loader.UnloadModule(memory, base));
         Check(loader.UnloadModule(memory, base + 0x4000) && loader.UnloadModule(memory, base));
+    }
+    // Code policy: an opt-in gate after relocation, before the module becomes visible.
+    {
+        PolicyProbe probe{};
+        wiiu::CROLoader gated;
+        Check(gated.RegisterSymbol("external", 0x08001234));
+        gated.SetCodePolicy(ProbePolicy, &probe);
+        bytes = Image();
+        Check(gated.LoadModule(memory, bytes.data(), bytes.size(), base, module));
+        Check(probe.calls == 1 && probe.segment_count == 4 && probe.load_address == base);
+        Check(gated.UnloadModule(memory, base));
+        probe.allow = false;
+        memory.Write32(base + text, 0xCAFEBABE);
+        bytes = Image();
+        Check(!gated.LoadModule(memory, bytes.data(), bytes.size(), base, module));
+        Check(gated.LastError() == not_translated && probe.calls == 2);
+        Check(memory.Read32(base + text) == 0xCAFEBABE && !gated.FindSymbol("function", value));
+        Check(memory.ReserveDynamicRange(base, 0x2000));
+        Check(memory.ReleaseDynamicRange(base, 0x2000));
+        probe.allow = true; probe.throws = true;
+        Check(!gated.LoadModule(memory, bytes.data(), bytes.size(), base, module));
+        Check(gated.LastError() == not_translated && !gated.FindSymbol("function", value));
+        Check(memory.Read32(base + text) == 0xCAFEBABE);
+        gated.SetCodePolicy(nullptr, nullptr);
+        Check(gated.LoadModule(memory, bytes.data(), bytes.size(), base, module));
+        Check(probe.calls == 3 && memory.Read32(base + text) == 0x08001238);
+        Check(gated.UnloadModule(memory, base));
+    }
+    // A rejected second module leaves the first loaded, exported and unloadable.
+    {
+        PolicyProbe probe{};
+        wiiu::CROLoader pair;
+        Check(pair.RegisterSymbol("external", 0x08001234));
+        pair.SetCodePolicy(ProbePolicy, &probe);
+        bytes = Image();
+        Check(pair.LoadModule(memory, bytes.data(), bytes.size(), base, module));
+        probe.allow = false;
+        auto second = Image(2, 0, "second", "second_fn", "external");
+        Check(!pair.LoadModule(memory, second.data(), second.size(), base + 0x4000, module));
+        Check(pair.LastError() == not_translated && !pair.FindSymbol("second_fn", value));
+        Check(pair.FindSymbol("function", value) && value == base + text + 4);
+        Check(memory.Read32(base + text) == 0x08001238 && !memory.ReserveDynamicRange(base, 0x1000));
+        Check(memory.ReserveDynamicRange(base + 0x4000, 0x1000));
+        Check(memory.ReleaseDynamicRange(base + 0x4000, 0x1000));
+        Check(pair.UnloadModule(memory, base) && memory.Read32(base + text) == 0);
+        Check(!pair.FindSymbol("function", value));
     }
     // Shared reservations prevent module/heap collisions and permit reuse after free.
     Check(memory.ReserveDynamicRange(base, 0x2000)); bytes = Image();

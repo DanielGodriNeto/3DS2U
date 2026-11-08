@@ -26,6 +26,16 @@ void WiiUEngine::RegisterBlock(std::uint32_t address, BlockFunction block_func) 
     block_table.insert_or_assign(address, block_func);
 }
 
+bool WiiUEngine::HasBlockInRange(std::uint32_t address, std::uint32_t size) const {
+    const auto begin = static_cast<std::uint64_t>(address);
+    const auto end = begin + static_cast<std::uint64_t>(size);
+    for (const auto& entry : block_table) {
+        const auto target = static_cast<std::uint64_t>(entry.first & ~1u);
+        if (target >= begin && target < end) return true;
+    }
+    return false;
+}
+
 bool WiiUEngine::RunWorkerBlock(void* engine, arm11::CPUContext& context) {
     return static_cast<WiiUEngine*>(engine)->DispatchOne(context);
 }

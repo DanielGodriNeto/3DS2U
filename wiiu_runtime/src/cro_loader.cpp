@@ -152,6 +152,16 @@ bool CROModule::IsExecutable(std::uint32_t address) const noexcept {
     return false;
 }
 
+void CROLoader::SetCodePolicy(CodePolicy policy, void* context) noexcept {
+    code_policy_ = policy;
+    code_policy_context_ = context;
+}
+bool CROLoader::AllowsCode(const CROModule& module) const {
+    if (code_policy_ == nullptr) return true;
+    try { return code_policy_(code_policy_context_, module); }
+    catch (...) { return false; }
+}
+
 bool CROLoader::RegisterSymbol(const std::string& name, U32 address) {
     if (name.empty()) return false;
     return symbols_.emplace(name, Symbol{address, 0}).second;
@@ -292,6 +302,7 @@ bool CROLoader::LoadModule(WiiUMemory& memory, const std::uint8_t* data, std::si
             patch(Tag(module, Word(p.bytes, at), 4), p.bytes[at + 4],
                      module.segments[index].address, Word(p.bytes, at + 8));
         }
+        if (!AllowsCode(module)) Fail("CRO module code is not translated");
         // Build all throwing metadata before committing any guest bytes.
         auto modules = modules_;
         if (!modules.emplace(base, module).second) Fail("CRO address already loaded");
