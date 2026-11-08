@@ -135,6 +135,16 @@ build\3ds2u_translator.exe game.code game.cpp --exheader game.exheader --thumb-r
 
 Repeat `--thumb-range address:size` for additional nonoverlapping ranges.
 
+For images whose code is mixed with literal pools or data, add `--discover` (opt-in;
+the default stays linear). It translates only code reachable from the entry point and
+rejects ambiguous input:
+
+```bat
+build\3ds2u_translator.exe game.code game.cpp --exheader game.exheader --discover
+```
+
+Details, limits and the rejection list are in the [maintainer guide](docs/maintainer-guide.md#reachability-discovery).
+
 Add `--split-instructions N` (N from 1) to write `translated_game_blocks_NNNN.cpp` units of about N
 instructions next to the main file instead of one huge source. Copy the main file and every
 `*_blocks_*.cpp` into `wiiu_runtime/src/` together (the unified build does this for you).
