@@ -18,8 +18,24 @@ entry has neither an ARM nor a Thumb block, or has both, the translator reports
 `entry point 0x... has no translated block` (or `has both ARM and Thumb translated
 blocks`) and writes no output file. At runtime, `DispatchOne` never calls a missing
 block: it logs the guest PC, mode (`ARM`/`Thumb`), lookup key and registered block
-count, then halts the main CPU. The line compares against the translator
+count, then halts the main CPU (a worker context returns false without halting).
+This is the stop policy: a block runs only for its exact lookup key, and a miss never
+calls host code at the guest PC. The line compares against the translator
 `Entry point` line. Old generated sources predate this and leave `r[15]` at 0.
+
+Opt-in detail: `EnableMissingBlockDiagnostics(true)` adds one more bounded line,
+`[3DS2U] Missing block detail: kind=... pc=... mode=... caller=... module=...`. The kind
+is `MisalignedTarget` (ARM PC not 4-byte or Thumb PC not 2-byte aligned: invalid control
+flow), `UnmappedTarget` (guest memory at PC is not backed), `NoTranslatedBlock` (PC is
+mapped memory with no registered block; executability is not checked) or `CroModuleMiss`
+(PC is inside a loaded module, code or data, named by
+`SetModuleLookup`). The caller is the key of the last block the main CPU ran, or `-`.
+The module name is cut to 31 characters and non-printable bytes show as `?`. The option
+is off by default. Building the runtime with `DS2U_MISSING_BLOCK_DETAIL` defined turns it
+on and installs the CRO module lookup, so `CroModuleMiss` is reported. Use the environment
+form `CPPFLAGS=-DDS2U_MISSING_BLOCK_DETAIL make -C wiiu_runtime`, because a command-line
+`CPPFLAGS=` would replace the Makefile's include flags. Delete `build/runtime/main.o` first,
+since the Makefile does not track the macro. Not built or run on devkitPPC or hardware.
 
 ## Architectural SVC numbers
 
@@ -105,8 +121,9 @@ T16 SVC bodies; `wiiu_runtime/tests/svc_tests.cpp` executes them with the produc
 engine/memory/kernel code. `translator/tests/entry_dispatch_tests.cpp` checks ARM,
 Thumb and raw entry emission, and rejection of missing or ambiguous entry blocks
 using synthetic ExHeaders. `wiiu_runtime/tests/dispatch_entry_tests.cpp` checks
-entry dispatch, mode, and the halt diagnostic for a missing block with synthetic
-blocks that touch no guest memory. Both are host-only, and the runtime test is not in
+entry dispatch, mode, the halt diagnostic, and the opt-in detail kinds (misaligned,
+unmapped, missing, CRO module, name truncation) with synthetic blocks. Those checks map
+their code page explicitly and read no guest data. Both are host-only, and the runtime test is not in
 `scripts/run_host_tests.cmd`. The missing-block diagnostic partially addresses the
 boot-crash report. A user-reported Cemu 2.6 run mounted the packaged RomFS, then
 halted with a missing translated block at PC `0x004FEAB0` in ARM mode and exited;

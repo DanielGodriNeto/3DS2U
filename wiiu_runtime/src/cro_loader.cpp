@@ -303,6 +303,15 @@ bool CROLoader::LoadModule(WiiUMemory& memory, const std::uint8_t* data, std::si
     } catch (const std::exception& e) { error_ = e.what(); return false; }
 }
 
+const char* CROLoader::FindModuleName(U32 address) const noexcept {
+    for (const auto& [base, module] : modules_) {
+        // 64-bit end: a module ending at the top of the 32-bit space must not wrap.
+        const std::uint64_t end = std::uint64_t{base} + module.mapped_size;
+        if (address >= base && std::uint64_t{address} < end) return module.name.c_str();
+    }
+    return nullptr;
+}
+
 bool CROLoader::UnloadModule(WiiUMemory& memory, U32 base) {
     const auto it = modules_.find(base);
     if (memory_ != &memory || it == modules_.end()) { error_ = "CRO module not loaded"; return false; }

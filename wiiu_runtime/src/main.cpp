@@ -36,6 +36,13 @@ std::uint32_t ReleaseGraphics(void* context) {
     return 0;
 }
 
+#ifdef DS2U_MISSING_BLOCK_DETAIL
+// Diagnostics-only lookup: context is the CRO loader that owns the loaded modules.
+const char* LookupCroModule(void* context, std::uint32_t address) noexcept {
+    return static_cast<wiiu::CROLoader*>(context)->FindModuleName(address);
+}
+#endif
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -77,6 +84,10 @@ int main(int argc, char** argv) {
         engine.GetMemory().SetPica200(pica200);
         auto& cpu = engine.GetCPU();
         InitDispatcher(engine);
+#ifdef DS2U_MISSING_BLOCK_DETAIL
+        engine.EnableMissingBlockDiagnostics(true);
+        engine.SetModuleLookup(LookupCroModule, &services.GetCROLoader());
+#endif
         if (const auto assets=wiiu::GetPackagedRomFS(); !assets.empty()) {
             if (!romfs.Mount(assets)) throw std::runtime_error("Packaged RomFS mount failed: "+romfs.GetLastError());
             services.AttachRomFS(romfs);
