@@ -52,6 +52,10 @@ if errorlevel 1 goto failed
 if errorlevel 1 goto failed
 build\vfp_execution.exe
 if errorlevel 1 goto failed
+%CXX% translator\tests\arm_unhandled_tests.cpp %TRANSLATORS% /Fe:build\arm_unhandled_tests.exe
+if errorlevel 1 goto failed
+build\arm_unhandled_tests.exe
+if errorlevel 1 goto failed
 %CXX% translator\tests\thumb32_tests.cpp %TRANSLATORS% /Fe:build\thumb32_tests.exe
 if errorlevel 1 goto failed
 build\thumb32_tests.exe

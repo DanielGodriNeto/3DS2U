@@ -184,6 +184,17 @@ bool EmitVfpInstruction(std::ostream& output, VFPTranslator& vfp, const Instruct
     return false;
 }
 
+// Fail closed: an ARM word that no translator handles traps when, and only when, it would execute.
+void EmitUnhandledArmInstruction(std::ostream& output, const Instruction& inst, const std::string& condition) {
+    std::cerr << "CppEmitter: unsupported ARM instruction at 0x" << HexAddress(inst.address)
+              << "; emitting runtime trap\n";
+    const auto trap = std::string("throw std::runtime_error(\"unsupported ARM instruction at 0x") +
+                      HexAddress(inst.address) + "\");";
+    // Condition 0xF has no ARMv6 meaning here; its "false" guard would hide the trap.
+    const bool never_condition = (inst.opcode >> 28) == 0xFu;
+    EmitInstruction(output, trap, never_condition ? std::string{} : condition);
+}
+
 // Returns true when the instruction ends the block.
 bool EmitArmInstruction(std::ostream& output, BlockTranslators& translators, const Instruction& inst) {
     const auto cond = static_cast<std::uint8_t>(inst.opcode >> 28);
@@ -200,6 +211,10 @@ bool EmitArmInstruction(std::ostream& output, BlockTranslators& translators, con
     translated = translators.alu.TranslateInstruction(inst);
     if (translated == "// Unhandled Instruction") {
         translated = translators.memory.TranslateInstruction(inst);
+    }
+    if (translated == "// Unhandled Instruction") {
+        EmitUnhandledArmInstruction(output, inst, condition);
+        return false;
     }
     EmitInstruction(output, translated, condition);
     return MemoryTranslator::IsLoadMultipleToPC(inst) && cond == 0xEu;

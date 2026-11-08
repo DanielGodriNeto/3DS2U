@@ -83,6 +83,9 @@ runtime never updates an old host tool. Close Cemu before replacing an RPX.
   runtime trap. Do not treat successful translation as support; see
   [issue #11](https://github.com/Wiirizon/3DS2U/issues/11). This is not a complete
   guest Undefined Instruction exception implementation.
+  Unhandled non-VFP ARM words are different: they emit a runtime trap under their
+  condition and throw only when executed; unhandled Thumb words already fail at
+  translation time.
 - CIA outer content encryption is CBC; NCCH region encryption is CTR. Plaintext
   NCCH content magic bypasses stale CIA encryption flags. Raw ExHeader hashes,
   validated ExeFS headers/hashes and bounded IVFC headers detect plaintext NCCH
