@@ -34,6 +34,9 @@ public:
                     std::uint32_t load_addr, CROModule& out_module);
     bool UnloadModule(WiiUMemory& memory, std::uint32_t load_addr);
     [[nodiscard]] const std::string& LastError() const noexcept { return error_; }
+    // Name of the loaded module whose [load, load + mapped_size) contains address, else nullptr.
+    // The pointer stays valid until that module is unloaded.
+    [[nodiscard]] const char* FindModuleName(std::uint32_t address) const noexcept;
 private:
     struct Symbol { std::uint32_t address{}, owner{}; };
     std::map<std::string, Symbol> symbols_;

@@ -80,6 +80,15 @@ const void* WiiUMemory::GetPointer(std::uint32_t addr, std::size_t size) const {
     return fcram_ + Offset(addr, size);
 }
 
+bool WiiUMemory::IsMapped(std::uint32_t addr, std::uint32_t size) const noexcept {
+    try {
+        (void)Offset(addr, size);
+        return true;
+    } catch (const std::out_of_range&) {
+        return false;
+    }
+}
+
 void WiiUMemory::ValidateImageMapping(std::uint32_t guest_va, std::uint32_t image_offset,
                                       std::uint32_t size) const {
     // All sums use 64 bits so a hostile range cannot wrap before it is checked.

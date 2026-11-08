@@ -70,6 +70,8 @@ public:
     // Other out-of-window accesses throw std::out_of_range.
     [[nodiscard]] std::uint32_t Read32(std::uint32_t addr) const;
     [[nodiscard]] std::uint8_t Read8(std::uint32_t addr) const;
+    // True when every byte of [addr, addr + size) is backed; never throws.
+    [[nodiscard]] bool IsMapped(std::uint32_t addr, std::uint32_t size = 1) const noexcept;
     void Write8(std::uint32_t addr, std::uint8_t value);
     void Write32(std::uint32_t addr, std::uint32_t val);
     [[nodiscard]] std::uint16_t Read16(std::uint32_t addr) const;

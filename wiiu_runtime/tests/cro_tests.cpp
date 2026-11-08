@@ -176,6 +176,18 @@ int main() try {
     Check(memory.ReserveDynamicRange(base, 0x2000)); bytes = Image();
     Check(!loader.LoadModule(memory, bytes.data(), bytes.size(), base, module));
     Check(memory.ReleaseDynamicRange(base, 0x2000));
+    // Name lookup covers [load, load + mapped_size), excludes the end and forgets unloaded modules.
+    bytes = Image(2, 4, "lookup");
+    Check(loader.LoadModule(memory, bytes.data(), bytes.size(), base, module));
+    const U32 module_end = base + module.mapped_size;
+    Check(loader.FindModuleName(base) != nullptr && std::strcmp(loader.FindModuleName(base), "lookup") == 0);
+    Check(loader.FindModuleName(base + text) != nullptr);
+    Check(loader.FindModuleName(module_end - 1u) != nullptr);
+    Check(loader.FindModuleName(module_end) == nullptr);
+    Check(loader.FindModuleName(base - 1u) == nullptr);
+    Check(loader.FindModuleName(0xFFFFFFFFu) == nullptr);
+    Check(loader.UnloadModule(memory, base));
+    Check(loader.FindModuleName(base + text) == nullptr);
     wiiu::hle::HLEServiceManager services;
     Check(services.GetCROLoader().RegisterSymbol("external", 0x08001234));
     constexpr U32 source = base + 0x10000;
