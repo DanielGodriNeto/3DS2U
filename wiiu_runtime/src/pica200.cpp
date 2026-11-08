@@ -2,10 +2,30 @@
 #include "gx2_manager.hpp"
 #include "wiiu_memory.hpp"
 #include "float24.hpp"
+#include <cstdio>
 #include <limits>
 #include <stdexcept>
 
 namespace wiiu {
+
+namespace {
+// Registers with defined behaviour in WriteMMIO; TEV and uniform writes are handled first.
+bool IsKnownRegister(std::uint32_t address) noexcept {
+    switch (address) {
+    case Pica200::kClearColorRegister:
+    case Pica200::kVertexBufferRegister:
+    case Pica200::kVertexStrideRegister:
+    case Pica200::kVertexCountRegister:
+    case Pica200::kDrawRegister:
+    case Pica200::kTextureAddress:
+    case Pica200::kTextureDimensions:
+    case Pica200::kTextureFormat:
+        return true;
+    default:
+        return address >= Pica200::kUniformBase && address < Pica200::kUniformEnd;
+    }
+}
+} // namespace
 
 std::uint32_t Pica200::GetRegisterValue(std::uint32_t address) const noexcept {
     if(address>=TEVCombiner::kBase && address<TEVCombiner::kEnd) return tev_.ReadRegister(address);
@@ -81,6 +101,19 @@ void Pica200::SubmitDraw(const DrawRequest& request) {
     gx2_manager_.DrawTriangles(vertices, request.count, request.stride);
 }
 
+void Pica200::RejectUnsupportedWrite(std::uint32_t address) {
+    if (unsupported_writes_ != std::numeric_limits<std::uint32_t>::max()) ++unsupported_writes_;
+    if (!has_unsupported_write_) {
+        has_unsupported_write_ = true;
+        first_unsupported_address_ = address;
+    }
+    if (!strict_registers_) return;
+    char message[64];
+    std::snprintf(message, sizeof message, "Unsupported PICA200 register write at 0x%08X",
+                  static_cast<unsigned>(address));
+    throw std::invalid_argument(message);
+}
+
 void Pica200::WriteMMIO(std::uint32_t address, std::uint32_t value, std::uint8_t byte_mask) {
     // Audio is not a PICA register: direct bridge callers forward to memory's audio owner.
     if (address >= 0x1EC10000u && address < 0x1EC18000u) {
@@ -92,14 +125,20 @@ void Pica200::WriteMMIO(std::uint32_t address, std::uint32_t value, std::uint8_t
         if (byte_mask != 15) value = (memory_->Read32(address) & ~mask) | (value & mask);
         memory_->Write32(address, value); return;
     }
-    if (address < kMMIOBase || address >= kMMIOEnd || (address & 3u) != 0)
-        return; // Preserve the direct-MMIO bridge's ignored-address behavior.
+    if (address < kMMIOBase || address >= kMMIOEnd) return; // Not a PICA write.
+    if ((address & 3u) != 0) {
+        RejectUnsupportedWrite(address); // Default: ignored, as the bridge always did.
+        return;
+    }
     if ((byte_mask & 0xFu) == 0) return;
     if(tev_.WriteRegister(address,value,byte_mask)) return;
+    if (!IsKnownRegister(address)) RejectUnsupportedWrite(address); // Default: shadowed below.
     std::uint32_t bits = 0;
     for (unsigned byte = 0; byte < 4; ++byte)
         if ((byte_mask & (1u << byte)) != 0) bits |= 0xFFu << (byte * 8u);
     value = (GetRegisterValue(address) & ~bits) | (value & bits);
+    if (address == kDrawRegister && (byte_mask & 1u) != 0 && value != 1)
+        RejectUnsupportedWrite(address); // Default: ignored by the draw case below.
     // Shadow unknown/uniform registers too, so masked and consecutive writes persist.
     registers_[address] = value;
     if (address >= kUniformBase && address < kUniformEnd) {

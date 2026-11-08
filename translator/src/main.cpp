@@ -2,6 +2,7 @@
 #include "decoder.hpp"
 #include "progress_sink.hpp"
 #include "cfg_builder.hpp"
+#include "code_discovery.hpp"
 #include "cpp_emitter.hpp"
 #include "thumb_decoder.hpp"
 
@@ -20,6 +21,7 @@ int main(int argc, char** argv) {
         std::cerr << "       Add --exheader <decrypted.exheader> for ExeFS section mapping\n";
         std::cerr << "       Add --thumb, or repeat --thumb-range <guest_address>:<byte_size>\n";
         std::cerr << "       Add --split-instructions N for bounded translation units of at most N instructions\n";
+        std::cerr << "       Add --discover to translate only code reachable from the entry point (opt-in)\n";
         return 1;
     }
 
@@ -32,6 +34,7 @@ int main(int argc, char** argv) {
     try {
         std::string exheader_path;
         bool all_thumb = false;
+        bool discover = false;
         struct Range { std::uint32_t start, size; };
         std::vector<Range> ranges;
         std::optional<std::uint32_t> split_budget;
@@ -47,6 +50,7 @@ int main(int argc, char** argv) {
         for (int i = 3; i < argc; ++i) {
             const std::string option = argv[i];
             if (option == "--thumb") all_thumb = true;
+            else if (option == "--discover") discover = true;
             else if (option == "--exheader" && i + 1 < argc && exheader_path.empty()) {
                 exheader_path = argv[++i];
                 if (exheader_path.empty()) throw std::invalid_argument("Empty ExHeader path");
@@ -68,7 +72,7 @@ int main(int argc, char** argv) {
         }
         if (all_thumb && !ranges.empty()) throw std::invalid_argument("Use --thumb or --thumb-range, not both");
         arm11::BinaryLoader loader;
-        if (!loader.LoadFile(input_path, exheader_path, all_thumb || !ranges.empty() ? 2u : 4u)) {
+        if (!loader.LoadFile(input_path, exheader_path, all_thumb || !ranges.empty() || discover ? 2u : 4u)) {
             std::cerr << "[3DS2U] Translation failed: cannot load \"" << input_path << "\"\n";
             return 1;
         }
@@ -101,17 +105,40 @@ int main(int argc, char** argv) {
                                        decoder.DecodeBuffer(bytes, static_cast<std::uint32_t>(start));
             instructions.insert(instructions.end(), decoded.begin(), decoded.end());
         };
-        auto cursor = entry;
-        if (all_thumb) append(entry, end, true);
-        else {
-            for (const auto& range : ranges) {
-                const std::uint64_t stop = std::uint64_t{range.start} + range.size;
-                if (range.start < cursor || stop > end) throw std::invalid_argument("Thumb ranges overlap or leave .text");
-                append(cursor, range.start, false);
-                append(range.start, stop, true);
-                cursor = stop;
+        if (discover) {
+            const bool entry_thumb = all_thumb || std::any_of(ranges.begin(), ranges.end(),
+                [entry](const Range& range) {
+                    return entry >= range.start && entry - range.start < range.size;
+                });
+            arm11::DiscoveryOptions options;
+            options.all_thumb = all_thumb;
+            for (const auto& range : ranges) options.thumb_ranges.push_back({range.start, range.size});
+            const auto entry_address = static_cast<std::uint32_t>(entry);
+            const auto result = arm11::DiscoverCode(
+                text, entry_address,
+                arm11::CodeLocation{entry_address, entry_thumb ? arm11::InstructionSet::Thumb
+                                                               : arm11::InstructionSet::ARM},
+                options);
+            std::uint64_t covered = 0;
+            for (const auto& inst : result.instructions) covered += inst.Width();
+            for (const auto& pool : result.literal_pools) covered += pool.size;
+            instructions = result.instructions;
+            std::cout << "[3DS2U] Discovery: " << instructions.size() << " instructions, "
+                      << result.literal_pools.size() << " literal pool word(s)\n"
+                      << "[3DS2U] Undecoded .text: " << (text.size() - covered) << " bytes\n";
+        } else {
+            auto cursor = entry;
+            if (all_thumb) append(entry, end, true);
+            else {
+                for (const auto& range : ranges) {
+                    const std::uint64_t stop = std::uint64_t{range.start} + range.size;
+                    if (range.start < cursor || stop > end) throw std::invalid_argument("Thumb ranges overlap or leave .text");
+                    append(cursor, range.start, false);
+                    append(range.start, stop, true);
+                    cursor = stop;
+                }
+                append(cursor, end, false);
             }
-            append(cursor, end, false);
         }
         if (instructions.empty()) throw std::runtime_error("No instructions in .text");
         std::cout << "[3DS2U] Parsed " << instructions.size() << " ARM/Thumb instructions\n";

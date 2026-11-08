@@ -3,7 +3,34 @@
 #include <array>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
+#include <string>
+
+namespace {
+std::string EmitSingle(const char* path, std::uint32_t word) {
+    const std::vector<arm11::Instruction> instructions{{word, 0x08000000u}};
+    if (!arm11::CppEmitter{}.EmitTranslatedFile(path, arm11::CFGBuilder{}.BuildBlocks(instructions)))
+        throw std::runtime_error("emit failed");
+    std::ifstream in(path);
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
+// An untranslatable VFP word must become a guarded runtime trap, never a no-op comment.
+void CheckFailsClosed(const char* name, std::uint32_t word, bool conditional) {
+    const std::string path = std::string("build/vfp_trap_") + name + ".cpp";
+    const auto text = EmitSingle(path.c_str(), word);
+    const std::string trap = "throw std::runtime_error(\"undefined or unsupported VFP instruction at 0x08000000\");";
+    const auto at = text.find(trap);
+    if (at == std::string::npos) throw std::runtime_error(std::string(name) + ": no trap emitted");
+    if (text.find("Unhandled") != std::string::npos) throw std::runtime_error(std::string(name) + ": silent comment emitted");
+    const auto line_start = text.rfind('\n', at);
+    const auto previous_start = text.rfind('\n', line_start - 1);
+    const auto previous = text.substr(previous_start + 1, line_start - previous_start - 1);
+    if (conditional != (previous.find("if (") != std::string::npos))
+        throw std::runtime_error(std::string(name) + ": trap guard does not match the instruction condition");
+}
+} // namespace
 
 int main() {
     const arm11::VFPTranslator translator;
@@ -107,5 +134,11 @@ int main() {
     std::cout << "VFP arithmetic, aliases, conversions, FPSCR, rounding and memory execution passed.\n";
 }
 )cpp";
+    CheckFailsClosed("d16", 0xEE710B02u, false);    // D16 does not exist on VFPv2: invalid encoding
+    CheckFailsClosed("vcmp", 0xEEB41A40u, false);   // valid VFP form without a translation
+    CheckFailsClosed("cond_f", 0xFE301A20u, false); // cond 0xF is undefined: the guard must not be "false"
+    CheckFailsClosed("vcmp_eq", 0x0EB41A40u, true); // conditional: trap only when the condition holds
+    if (EmitSingle("build/vfp_ok.cpp", 0xEE301A20u).find("undefined or unsupported") != std::string::npos)
+        throw std::runtime_error("translatable VFP instruction must not trap");
     std::cout << "VFP translation and emitter generation passed.\n";
 }
