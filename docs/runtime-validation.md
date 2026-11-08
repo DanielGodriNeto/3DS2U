@@ -51,6 +51,7 @@ extracted content, generated RPX files or unredacted logs. See
    title-specific translation behavior.
 3. If an authorized local title is tested, keep the input and logs local and
    share only a redacted summary with reproducible tool/version details.
-4. Treat unsupported VFPv2 warnings as a separate correctness risk until the
-   translator either rejects unsupported instructions or emits an explicit
-   guest trap. A warning alone does not prove that the instruction executed.
+4. Treat unsupported VFPv2 warnings as a separate correctness risk: the
+   translator now emits an explicit runtime trap for them instead of a no-op.
+   A warning alone does not prove that the instruction executed; a trap message
+   at run time means it did.
