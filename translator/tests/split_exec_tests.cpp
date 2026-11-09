@@ -86,7 +86,10 @@ std::string ReadText(const fs::path& path) {
     std::ifstream file(path, std::ios::binary);
     std::ostringstream text;
     text << file.rdbuf();
-    return text.str();
+    // Windows text-mode writers emit CRLF; compare on LF so line checks hold on every host.
+    auto content = text.str();
+    content.erase(std::remove(content.begin(), content.end(), '\r'), content.end());
+    return content;
 }
 
 // Decrypted ExHeader with the entry text at kEntry (same layout as split_cli_tests.cpp).
